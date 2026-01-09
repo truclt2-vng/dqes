@@ -1,0 +1,73 @@
+mvn -Pgencrud clean compile -f "d:\V-ISING\XPLATFORM\project\dqes\pom.xml" -s D:/mvn_settings/xp_settings.xml -U -Dmaven.test.skip=true
+
+<profile>
+            <id>gencrud</id>
+            <properties>
+                <!-- CodeGenerator properties -->
+                <rootPackage>com.a4b.xptestgen</rootPackage>
+                <overrideExistingFiles>false</overrideExistingFiles>
+                <generateGraphQLSchema>false</generateGraphQLSchema>
+                <include.tables></include.tables>
+                <exclude.tables>systb_,comtb_i18n</exclude.tables>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>com.a4b</groupId>
+                    <artifactId>codegen-ftl</artifactId>
+                    <version>1.0.0</version>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.pro-crafting.maven</groupId>
+                        <artifactId>yaml-properties-maven-plugin</artifactId>
+                        <version>1.1.4</version>
+                        <executions>
+                            <execution>
+                                <phase>initialize</phase>
+                                <goals>
+                                    <goal>read-project-properties</goal>
+                                </goals>
+                                <configuration>
+                                    <files>
+                                        <file>${project.build.directory}/classes/config/application-local.yml</file>
+                                    </files>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- Chạy class Generator bằng exec plugin -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <executions>
+                            <execution>
+                                <id>run-querydsl-codegen</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                <goal>java</goal>
+                                </goals>
+                                <configuration>
+                                <mainClass>com.a4b.codegen.CodeGenerator</mainClass>
+                                <classpathScope>compile</classpathScope>
+                                <arguments>
+                                    <!-- Cho phép override qua -D khi chạy -->
+                                    <argument>${spring.datasource.url}</argument>
+                                    <argument>${spring.datasource.username}</argument>
+                                    <argument>${spring.datasource.password}</argument>
+                                    <argument>${spring.jpa.properties.hibernate.default_schema}</argument>
+                                    <argument>${rootPackage}</argument>
+                                    <argument>${overrideExistingFiles}</argument>
+                                    <argument>${include.tables}</argument>
+                                    <argument>${exclude.tables}</argument>
+                                    <argument>${generateGraphQLSchema}</argument>
+                                </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>

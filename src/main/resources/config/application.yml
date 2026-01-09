@@ -1,0 +1,319 @@
+# ===================================================================
+# Spring Boot configuration.
+#
+# This configuration will be overridden by the Spring profile you use,
+# for example application-dev.yml if you use the "dev" profile.
+#
+# More information on profiles: https://www.jhipster.tech/profiles/
+# More information on configuration properties: https://www.jhipster.tech/common-application-properties/
+# ===================================================================
+
+# ===================================================================
+# Standard Spring Boot properties.
+# Full reference is available at:
+# http://docs.spring.io/spring-boot/docs/current/reference/html/common-application-properties.html
+# ===================================================================
+
+---
+# Conditionally disable springdoc on missing api-docs profile
+spring:
+  config:
+    activate:
+      on-profile: '!api-docs'
+springdoc:
+  api-docs:
+    enabled: false
+---
+feign:
+  circuitbreaker:
+    enabled: true
+  # client:
+  #   config:
+  #     default:
+  #       connectTimeout: 5000
+  #       readTimeout: 5000
+management:
+  endpoints:
+    web:
+      base-path: /management
+      exposure:
+        include:
+          - configprops
+          - env
+          - health
+          - info
+          - jhimetrics
+          - jhiopenapigroups
+          - logfile
+          - loggers
+          - prometheus
+          - threaddump
+          - caches
+  endpoint:
+    health:
+      show-details: WHEN_AUTHORIZED
+      roles: 'ROLE_ADMIN'
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+    jhimetrics:
+      enabled: true
+  info:
+    git:
+      mode: full
+    env:
+      enabled: true
+  health:
+    mail:
+      enabled: false # When using the MailService, configure an SMTP server and set this to true
+    jms:
+      enabled: false
+    kafka:
+      enabled: false
+  tracing:
+    sampling:
+      probability: 1.0
+    propagation:
+      type: W3C
+    baggage:
+      remote-fields:
+        - x-tracing-app-id
+        - x-tracing-app-version
+        - x-tracing-manufacturer
+        - x-tracing-os-version
+        - x-tracing-os
+        - x-tracing-imei
+        - x-tracing-model
+        - x-tracing-location
+        - x-tracing-screen
+        - x-tracing-module-type
+        - x-tracing-flow-code
+      correlation:
+        enabled: true
+        fields:
+          - x-tracing-app-id
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+        step: 60
+  observations:
+    key-values:
+      application: ${spring.application.name}
+  metrics:
+    enable:
+      http: true
+      jvm: true
+      logback: true
+      process: true
+      system: true
+    distribution:
+      percentiles-histogram:
+        all: true
+      percentiles:
+        all: 0, 0.5, 0.75, 0.95, 0.99, 1.0
+    data:
+      repository:
+        autotime:
+          enabled: true
+
+logging:
+    pattern:
+        level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+
+spring:
+  threads:
+    virtual:
+      enabled: true
+  autoconfigure:
+    exclude: org.springframework.boot.actuate.autoconfigure.metrics.jdbc.DataSourcePoolMetricsAutoConfiguration
+  application:
+    name: dqes
+
+  cloud:
+    consul:
+      discovery:
+        healthCheckPath: /management/health
+        instanceId: dqes:${spring.application.instance-id:${random.value}}
+        service-name: dqes
+      config:
+        watch:
+          enabled: false
+    function:
+     definition: kafkaConsumer;demoMessageConsumer
+    stream:
+      kafka:
+        binder:
+          replicationFactor: 1
+          auto-create-topics: true
+          brokers: localhost:9092
+      bindings:
+        # activity log producer
+        activityLogProducer-out-0:
+          content-type: text/plain
+          destination: Xpactstreams.Inbound
+          group: dqes
+        dqes-cloud-event-out-0:
+          content-type: text/plain
+          destination: Dqes.Outbound.CloudEvent
+          group: dqes
+        demoMessageConsumer-in-0:
+          content-type: application/json
+          destination: dqes.Inbound.Demo
+          group: dqes
+  profiles:
+    # The commented value for `active` can be replaced with valid Spring profiles to load.
+    # Otherwise, it will be filled in by maven when building the JAR file
+    # Either way, it can be overridden by `--spring.profiles.active` value passed in the commandline or `-Dspring.profiles.active` set in `JAVA_OPTS`
+    active: #spring.profiles.active#
+    group:
+      dev:
+        - dev
+        - api-docs
+        # Uncomment to activate TLS for the dev profile
+        #- tls
+  jmx:
+    enabled: false
+  data:
+    jpa:
+      repositories:
+        bootstrap-mode: deferred
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+      hibernate.timezone.default_storage: NORMALIZE
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+      hibernate.id.new_generator_mappings: true
+      hibernate.connection.provider_disables_autocommit: true
+      hibernate.cache.use_second_level_cache: true
+      hibernate.cache.use_query_cache: false
+      hibernate.generate_statistics: false
+      # modify batch size as necessary
+      hibernate.jdbc.batch_size: 25
+      hibernate.order_inserts: true
+      hibernate.order_updates: true
+      hibernate.query.fail_on_pagination_over_collection_fetch: true
+      hibernate.query.in_clause_parameter_padding: true
+      hibernate.cache.region.factory_class: com.hazelcast.hibernate.HazelcastCacheRegionFactory
+      hibernate.cache.use_minimal_puts: true
+      hibernate.cache.hazelcast.instance_name: dqes
+      hibernate.cache.hazelcast.use_lite_member: true
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+        implicit-strategy: org.springframework.boot.orm.jpa.hibernate.SpringImplicitNamingStrategy
+  messages:
+    basename: i18n/messages
+  main:
+    allow-bean-definition-overriding: true
+  mvc:
+    problemdetails:
+      enabled: true
+  task:
+    execution:
+      thread-name-prefix: dqes-task-
+      pool:
+        core-size: 2
+        max-size: 50
+        queue-capacity: 10000
+    scheduling:
+      thread-name-prefix: dqes-scheduling-
+      pool:
+        size: 2
+
+  output:
+    ansi:
+      console-available: true
+
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+
+# springdoc:
+#   show-actuator: true
+
+# Properties to be exposed on the /info management endpoint
+info:
+  # Comma separated list of profiles that will trigger the ribbon to show
+  display-ribbon-on-profiles: 'dev'
+
+# ===================================================================
+# JHipster specific properties
+#
+# Full reference is available at: https://www.jhipster.tech/common-application-properties/
+# ===================================================================
+
+jhipster:
+  clientApp:
+    name: 'dqesApp'
+  # By default CORS is disabled. Uncomment to enable.
+  # cors:
+  #   allowed-origins: "http://localhost:8100,http://localhost:9000"
+  #   allowed-methods: "*"
+  #   allowed-headers: "*"
+  #   exposed-headers: "Authorization,Link,X-Total-Count,X-${jhipster.clientApp.name}-alert,X-${jhipster.clientApp.name}-error,X-${jhipster.clientApp.name}-params"
+  #   allow-credentials: true
+  #   max-age: 1800
+  mail:
+    from: dqes@localhost
+  api-docs:
+    default-include-pattern: /api/**
+    management-include-pattern: /management/**
+    title: Dqes API
+    description: Dqes API documentation
+    version: 1.0.0
+    terms-of-service-url: https://a4b.vn/terms-of-service/
+    contact-name: A4B
+    contact-url: https://a4b.vn/contact-us/
+    contact-email: contact@a4b.vn
+    license: © 2024 A4B
+    license-url: https://a4b.vn/license/
+
+# ===================================================================
+# Application specific properties
+# Add your own application properties here, see the ApplicationProperties class
+# to have type-safe configuration, like in the JHipsterProperties above
+#
+# More documentation is available at:
+# https://www.jhipster.tech/common-application-properties/
+# ===================================================================
+
+# application:
+
+
+auth:
+  on-behalf-jwt:
+    etl: "<token>"
+  on-behalf-auth:
+    mcr: "dqes.com:<pass>"
+
+field-sec:
+  url: http://xpsecmt/
+profile-service:
+  url: http://mcrusprofile/
+gateway:
+  url: http://gw/
+
+amq:
+  enabled: false
+
+redis:
+  enabled: false
+
+kafka:
+  enabled: false
+
+# 256-bit key generation command:
+#openssl rand -base64 32
+dqes:
+  crypto:
+    masterKeyBase64: "fzHSApuirYz4gXF7ALwlBxd5+JR3r5Q1c/2OGRF/8PA=" # 256-bit key (32 bytes)
+    aad: "dqes-password" # optional AAD

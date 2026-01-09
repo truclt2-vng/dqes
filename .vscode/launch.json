@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-DqesApp<dqes>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.a4b.dqes.DqesApp",
+            "projectName": "dqes",
+            "args": ["--spring.profiles.active=local,api-docs"],
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}

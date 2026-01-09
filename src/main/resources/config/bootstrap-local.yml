@@ -1,0 +1,10 @@
+# ===================================================================
+# Spring Cloud Consul Config bootstrap configuration for the "prod" profile
+# ===================================================================
+
+spring:
+  cloud:
+    consul:
+      enabled: false
+    vault:
+      enabled: false    

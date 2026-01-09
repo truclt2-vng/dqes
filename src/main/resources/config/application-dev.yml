@@ -1,0 +1,166 @@
+# ===================================================================
+# Spring Boot configuration for the "dev" profile.
+#
+# This configuration overrides the application.yml file.
+#
+# More information on profiles: https://www.jhipster.tech/profiles/
+# More information on configuration properties: https://www.jhipster.tech/common-application-properties/
+# ===================================================================
+
+# ===================================================================
+# Standard Spring Boot properties.
+# Full reference is available at:
+# http://docs.spring.io/spring-boot/docs/current/reference/html/common-application-properties.html
+# ===================================================================
+
+logging:
+  level:
+    ROOT: DEBUG
+    tech.jhipster: DEBUG
+    org.hibernate.SQL: DEBUG
+    com.a4b.dqes: DEBUG
+    org.apache.kafka.clients: WARN
+    javax.management.mbeanserver: OFF
+    javax.management.remote.rmi: OFF
+    jdk.internal.httpclient.debug: OFF
+
+management:
+#  zipkin: # Use the "zipkin" Maven profile to have the Spring Cloud Zipkin dependencies
+#    tracing:
+#      endpoint: http://localhost:9411/api/v2/spans
+  tracing:
+    sampling:
+      probability: 1.0 # report 100% of traces
+  otlp:
+   tracing:
+     endpoint: http://localhost:4318/v1/traces
+
+spring:
+  devtools:
+    restart:
+      enabled: true
+      additional-exclude: static/**
+    livereload:
+      enabled: false # we use Webpack dev server + BrowserSync for livereload
+  jackson:
+    serialization:
+      indent-output: true
+  cloud:
+    stream:
+      kafka:
+        binder:
+          replicationFactor: 1
+          auto-create-topics: true
+          brokers: XP-NLB-INTERNAL-75b220ba025c73e8.elb.ap-southeast-1.amazonaws.com:19092
+          configuration:
+            sasl:
+              mechanism: PLAIN
+            security:
+              protocol: PLAINTEXT
+    consul:
+      enabled: false
+      config:
+        fail-fast: false # if not in "prod" profile, do not force to use Spring Cloud Config
+        format: yaml
+        profile-separator: '-'
+      discovery:
+        prefer-ip-address: true
+        tags:
+          - profile=${spring.profiles.active}
+          - version=#project.version#
+          - git-version=${git.commit.id.describe:}
+          - git-commit=${git.commit.id.abbrev:}
+          - git-branch=${git.branch:}
+      host: localhost
+      port: 8500
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    database: POSTGRESQL
+    show-sql: true
+    properties:
+      hibernate.default_schema: hrm
+  datasource:
+    type: com.zaxxer.hikari.HikariDataSource
+    url: jdbc:postgresql://xpdev.cgpjurtmpfcm.ap-southeast-1.rds.amazonaws.com:5432/xhrm
+    username: xhrm
+    password: xhrmdev
+    hikari:
+      auto-commit: false
+      maximum-pool-size: 8
+      pool-name: dqes
+      minimum-idle: 4
+      connection-timeout: 20000
+      maxLifetime: 300000
+      connectionTestQuery: SELECT 1
+      leakDetectionThreshold: 15000
+
+  messages:
+    cache-duration: PT1S # 1 second, see the ISO 8601 standard
+
+server:
+  port: 8080
+
+# ===================================================================
+# JHipster specific properties
+#
+# Full reference is available at: https://www.jhipster.tech/common-application-properties/
+# ===================================================================
+
+jhipster:
+  cache: # Cache configuration
+    hazelcast: # Hazelcast distributed cache
+      time-to-live-seconds: 3600
+      backup-count: 1
+  # CORS is disabled by default on microservices, as you should access them through a gateway.
+  # If you want to enable it, please uncomment the configuration below.
+  # cors:
+  #   allowed-origins: "http://localhost:9000,https://localhost:9000"
+  #   allowed-methods: "*"
+  #   allowed-headers: "*"
+  #   exposed-headers: "Authorization,Link,X-Total-Count"
+  #   allow-credentials: true
+  #   max-age: 1800
+  security:
+    authentication:
+      jwt:
+        # This token must be encoded using Base64 and be at least 256 bits long (you can type `openssl rand -base64 64` on your command line to generate a 512 bits one)
+        base64-secret: ZTBkNzRjMWUxYjk1MzAzZjFjNTE2NmY2YzNiZTBhODU2NGRlMTRjZjA2NThkYTQwZjhkNmM3YzIwYzRiZjU0ZjBhOGE5ZWY3NzZjMzdhYTY3MzdhZGQ0M2NmYmY5MmI2ZDM0ZmY3OGQ1NGQ5ZGFiZjgxYjM5ZTBlOTlmZTYzZGE=
+        # Token is valid 24 hours
+        token-validity-in-seconds: 86400
+        token-validity-in-seconds-for-remember-me: 2592000
+  logging:
+    use-json-format: false # By default, logs are not in Json format
+    logstash: # Forward logs to logstash over a socket, used by LoggingConfiguration
+      enabled: false
+      host: localhost
+      port: 5000
+      ring-buffer-size: 512
+# ===================================================================
+# Application specific properties
+# Add your own application properties here, see the ApplicationProperties class
+# to have type-safe configuration, like in the JHipsterProperties above
+#
+# More documentation is available at:
+# https://www.jhipster.tech/common-application-properties/
+# ===================================================================
+
+# application:
+
+## store inbound/outbound with baggage and send to xpservicelog
+#xpservicelog:
+#  store-in-out: true
+
+kafka:
+  enabled: false
+
+redis:
+  enabled: false
+  primary:
+    host: XP-NLB-INTERNAL-75b220ba025c73e8.elb.ap-southeast-1.amazonaws.com
+    port: 6379
+
+amq:
+  enabled: false
+  broker-url: "tcp://localhost:61616"
+  username: admin
+  password: admin
