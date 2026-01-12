@@ -63,11 +63,11 @@ public class SqlGenerator {
      */
     private void allocateAliases(QueryAST ast, SqlContext ctx) {
         // Root object: use aliasHint or default to t0
-        ObjectMeta rootObj = loadObjectMeta(ast, ast.getRootObjectCode());
+        ObjectMeta rootObj = loadObjectMeta(ast, ast.getRootObject());
         String rootAlias = (rootObj.getAliasHint() != null && !rootObj.getAliasHint().isEmpty()) 
             ? rootObj.getAliasHint() 
             : "t0";
-        ctx.aliasMap.put(ast.getRootObjectCode(), rootAlias);
+        ctx.aliasMap.put(ast.getRootObject(), rootAlias);
         ctx.aliasCounter = 1;
         
         // Allocate aliases for joined objects
@@ -105,7 +105,7 @@ public class SqlGenerator {
         List<String> selectExpressions = new ArrayList<>();
         
         // Process root object fields (flat columns)
-        String rootObjectCode = ast.getRootObjectCode();
+        String rootObjectCode = ast.getRootObject();
         if (selectsByObject.containsKey(rootObjectCode)) {
             for (SelectNode select : selectsByObject.get(rootObjectCode)) {
                 FieldMeta field = loadFieldMeta(ast, select.getObjectCode(), select.getFieldCode());
@@ -176,8 +176,8 @@ public class SqlGenerator {
         
         if (selectExpressions.isEmpty()) {
             // Default: select all fields from root object
-            ObjectMeta rootObj = loadObjectMeta(ast, ast.getRootObjectCode());
-            String rootAlias = ctx.aliasMap.get(ast.getRootObjectCode());
+            ObjectMeta rootObj = loadObjectMeta(ast, ast.getRootObject());
+            String rootAlias = ctx.aliasMap.get(ast.getRootObject());
             selectExpressions.add(rootAlias + ".*");
         }
         
@@ -191,8 +191,8 @@ public class SqlGenerator {
      * Build FROM clause
      */
     private String buildFromClause(QueryAST ast, SqlContext ctx) {
-        ObjectMeta rootObj = loadObjectMeta(ast, ast.getRootObjectCode());
-        String rootAlias = ctx.aliasMap.get(ast.getRootObjectCode());
+        ObjectMeta rootObj = loadObjectMeta(ast, ast.getRootObject());
+        String rootAlias = ctx.aliasMap.get(ast.getRootObject());
         
         return "FROM " + rootObj.getDbTable() + " " + rootAlias + "\n";
     }

@@ -1,4 +1,8 @@
-package com.a4b.dqes.service;
+/**
+ * Created: Jan 12, 2026 9:42:20 AM
+ * Copyright © 2026 by A4B. All rights reserved
+ */
+package com.a4b.dqes.service.metadata;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -23,36 +27,34 @@ import org.springframework.transaction.annotation.Transactional;
 import com.a4b.dqes.crypto.CryptoService;
 import com.a4b.dqes.dto.record.DbConnInfo;
 import com.a4b.dqes.dto.record.MetaRefreshStats;
+import com.a4b.dqes.query.DynamicDataSourceService;
 import com.google.common.base.CaseFormat;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 
-// ...
+import lombok.RequiredArgsConstructor;
 
 @Service
-public class DqesMetadataRefreshService {
+@RequiredArgsConstructor
+public class MetadataRefreshService {
 
+    private final DynamicDataSourceService dataSourceService;
     private final NamedParameterJdbcTemplate dqesJdbc;
     private final JdbcTemplate dqesPlainJdbc; // dùng batchUpdate nhanh hơn
     private final CryptoService cryptoService;
 
     private static final int BATCH_SIZE = 500;
 
-    public DqesMetadataRefreshService(NamedParameterJdbcTemplate dqesJdbc, CryptoService cryptoService) {
-        this.dqesJdbc = dqesJdbc;
-        this.dqesPlainJdbc = dqesJdbc.getJdbcTemplate();
-        this.cryptoService = cryptoService;
+    private static final class Stats {
+        int objects, fields, relations, joinKeys;
+        MetaRefreshStats toRecord() { return new MetaRefreshStats(objects, fields, relations, joinKeys); }
     }
 
-    // =========================
-    // DTO rows for batch
-    // =========================
     private record ObjectRow(
             int dbconnId, String tenant, String app,
             String objectCode, String objectName, String dbTable, String aliasHint,
             String description, String fts
     ) {}
 
+    private record ColumnInfo(String columnName, int jdbcType, String typeName, boolean nullable) {}
     private record FieldRow(
             String tenant, String app, String objectCode,
             String fieldCode, String fieldLabel,
@@ -60,7 +62,7 @@ public class DqesMetadataRefreshService {
             boolean notNull, String description, String fts
     ) {}
 
-    private record RelationRow(
+        private record RelationRow(
             int dbconnId, String tenant, String app,
             String code, String fromObject, String toObject,
             String relationType  // MANY_TO_ONE or ONE_TO_MANY
@@ -73,31 +75,50 @@ public class DqesMetadataRefreshService {
             int dbconnId, String tenant, String app
     ) {}
 
-    private static final class Stats {
-        int objects, fields, relations, joinKeys;
-        MetaRefreshStats toRecord() { return new MetaRefreshStats(objects, fields, relations, joinKeys); }
+    private static class PendingJoinKey {
+        final String relCode;
+        final List<FkRow> rows;
+        private PendingJoinKey(String relCode, List<FkRow> rows) {
+            this.relCode = relCode;
+            this.rows = rows;
+        }
+        static PendingJoinKey of(String relCode, List<FkRow> rows) {
+            return new PendingJoinKey(relCode, rows);
+        }
+    }
+
+    private static class FkRow {
+        final String pkSchema, pkTable, pkCol;
+        final String fkSchema, fkTable, fkCol;
+        final int keySeq;
+
+        FkRow(String pkSchema, String pkTable, String pkCol,
+                String fkSchema, String fkTable, String fkCol,
+                int keySeq) {
+            this.pkSchema = pkSchema;
+            this.pkTable = pkTable;
+            this.pkCol = pkCol;
+            this.fkSchema = fkSchema;
+            this.fkTable = fkTable;
+            this.fkCol = fkCol;
+            this.keySeq = keySeq;
+        }
     }
 
     @Transactional
     public MetaRefreshStats refreshByConnCode(String tenantCode, String appCode, String connCode) throws Exception {
-        DbConnInfo conn = loadConn(tenantCode, appCode, connCode);
-
+        DbConnInfo conn = dataSourceService.loadConnectionInfo(tenantCode, appCode, connCode);
         String passwordPlain = cryptoService.decrypt(conn.passwordEnc(), conn.passwordAlg());
-
-        DataSource targetDs = buildTargetDataSource(conn, passwordPlain);
-
-        // 1) purge existing metadata for this dbconn_id
-        purgeExisting(conn.id(), tenantCode, appCode);
-
+        DataSource targetDs = dataSourceService.buildDataSource(conn, passwordPlain);
         Stats stats = new Stats();
-        // 2) scan + insert objects/fields/relations
+
         try {
             scanAndPersist(targetDs, conn, tenantCode, appCode, stats);
         } finally {
             if (targetDs instanceof com.zaxxer.hikari.HikariDataSource hk) hk.close();
         }
 
-        // 3) optional: refresh path cache
+                // 3) optional: refresh path cache
         dqesJdbc.getJdbcTemplate().execute(
                 "CALL dqes.refresh_qry_object_paths(?, ?, ?, ?)",
                 (PreparedStatementCallback<Void>) ps -> {
@@ -108,108 +129,17 @@ public class DqesMetadataRefreshService {
                     ps.execute();
                     return null;
                 });
+
         return stats.toRecord();
     }
 
-    private DbConnInfo loadConn(String tenantCode, String appCode, String connCode) {
-        String sql = """
-                SELECT id, tenant_code, app_code, conn_code, db_vendor, host, port, db_name, db_schema,
-                       username, password_enc, password_alg, ssl_enabled, ssl_mode, jdbc_params::text
-                FROM dqes.cfgtb_dbconn_info
-                WHERE tenant_code=:tenant AND app_code=:app AND conn_code=:code
-                  AND current_flg=true AND record_status <> 'D'
-                """;
-
-        Map<String, Object> p = Map.of("tenant", tenantCode, "app", appCode, "code", connCode);
-
-        return dqesJdbc.queryForObject(sql, p, (rs, i) -> new DbConnInfo(
-                rs.getInt("id"),
-                rs.getString("tenant_code"),
-                rs.getString("app_code"),
-                rs.getString("conn_code"),
-                rs.getString("db_vendor"),
-                rs.getString("host"),
-                rs.getInt("port"),
-                rs.getString("db_name"),
-                rs.getString("db_schema"),
-                rs.getString("username"),
-                rs.getString("password_enc"),
-                rs.getString("password_alg"),
-                (Boolean) rs.getObject("ssl_enabled"),
-                rs.getString("ssl_mode"),
-                rs.getString("jdbc_params")));
-    }
-
-    private void purgeExisting(int dbconnId, String tenantCode, String appCode) {
-        dqesJdbc.update("""
-                DELETE FROM dqes.qrytb_object_path_cache
-                WHERE tenant_code=:tenant AND app_code=:app
-                  AND dbconn_id=:dbconnId
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
-        // delete join keys -> relations -> fields -> objects
-        dqesJdbc.update("""
-                DELETE FROM dqes.qrytb_relation_join_key
-                WHERE relation_id IN (
-                  SELECT id FROM dqes.qrytb_relation_info
-                  WHERE tenant_code=:tenant AND app_code=:app
-                    AND (relation_props->>'dbconn_id')::int = :dbconnId
-                )
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
-
-        dqesJdbc.update("""
-                DELETE FROM dqes.qrytb_relation_info
-                WHERE tenant_code=:tenant AND app_code=:app
-                  AND (relation_props->>'dbconn_id')::int = :dbconnId
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
-
-        dqesJdbc.update("""
-                DELETE FROM dqes.qrytb_field_meta
-                WHERE tenant_code=:tenant AND app_code=:app
-                  AND object_code IN (
-                    SELECT object_code FROM dqes.qrytb_object_meta
-                    WHERE tenant_code=:tenant AND app_code=:app AND dbconn_id=:dbconnId
-                  )
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
-
-        dqesJdbc.update("""
-                DELETE FROM dqes.qrytb_object_meta
-                WHERE tenant_code=:tenant AND app_code=:app AND dbconn_id=:dbconnId
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
-    }
-
-    private DataSource buildTargetDataSource(DbConnInfo c, String passwordPlain) {
-        // Postgres example; anh có thể switch theo c.dbVendor()
-        String schema = (c.dbSchema() == null || c.dbSchema().isBlank()) ? "public" : c.dbSchema();
-        String url = "jdbc:postgresql://" + c.host() + ":" + c.port() + "/" + c.dbName();
-
-        // append params
-        // - currentSchema giúp getTables/getColumns ưu tiên đúng schema
-        StringBuilder sb = new StringBuilder(url).append("?currentSchema=").append(schema);
-        if (Boolean.TRUE.equals(c.sslEnabled())) {
-            sb.append("&ssl=true");
-            if (c.sslMode() != null && !c.sslMode().isBlank())
-                sb.append("&sslmode=").append(c.sslMode());
-        }
-
-        HikariConfig cfg = new HikariConfig();
-        cfg.setJdbcUrl(sb.toString());
-        cfg.setUsername(c.username());
-        cfg.setPassword(passwordPlain);
-        cfg.setMaximumPoolSize(2);
-        cfg.setPoolName("dqes-target-" + c.connCode());
-        return new HikariDataSource(cfg);
-    }
-
-    // =========================
-    // scan + batch persist
-    // =========================
     private void scanAndPersist(DataSource targetDs, DbConnInfo conn,
                                 String tenantCode, String appCode, Stats stats) throws Exception {
-
         List<ObjectRow> objects = new ArrayList<>();
         List<FieldRow> fields = new ArrayList<>();
         List<RelationRow> relations = new ArrayList<>();
         List<PendingJoinKey> pendingJoinKeys = new ArrayList<>(); // relationCode + keys
+        List<String> tables = new ArrayList<>();
 
         try (Connection cx = targetDs.getConnection()) {
             DatabaseMetaData md = cx.getMetaData();
@@ -226,6 +156,8 @@ public class DqesMetadataRefreshService {
                     String type   = rs.getString("TABLE_TYPE");
                     if (schema == null || name == null) continue;
 
+                    tables.add(name);
+
                     String objectCode = toObjectCode(schema, name);
                     String dbTable = schema + "." + name;
 
@@ -239,7 +171,16 @@ public class DqesMetadataRefreshService {
                 }
             }
 
-            // batch insert objects
+            // Map<String, Map<String, ColumnInfo>> allColumnsCache = new LinkedHashMap<>();
+            // Map<String, List<FkRow>> allImportedKeysCache = new LinkedHashMap<>();
+            // Map<String, List<ExportedFkRow>> allExportedKeysCache = new LinkedHashMap<>();
+            // for (String table : tables) {
+            //     allColumnsCache.put(table, readColumns(md, targetSchema, table));
+            //     allImportedKeysCache.put(table, readImportedKeys(md, targetSchema, table));
+            //     allExportedKeysCache.put(table, readExportedKeys(md, targetSchema, table));
+            // } 
+
+             // batch insert objects
             batchInsertObjects(objects);
             stats.objects += objects.size();
 
@@ -377,19 +318,30 @@ public class DqesMetadataRefreshService {
         }
     }
 
-    // ================
-    // Pending join keys
-    // ================
-    private static class PendingJoinKey {
-        final String relCode;
-        final List<FkRow> rows;
-        private PendingJoinKey(String relCode, List<FkRow> rows) {
-            this.relCode = relCode;
-            this.rows = rows;
-        }
-        static PendingJoinKey of(String relCode, List<FkRow> rows) {
-            return new PendingJoinKey(relCode, rows);
-        }
+    private Map<String, Integer> fetchRelationIdsByCodes(
+        String tenant, String app, int dbconnId, List<String> codes) {
+
+        if (codes == null || codes.isEmpty()) return Map.of();
+
+        String sql = """
+            SELECT code, id
+            FROM dqes.qrytb_relation_info
+            WHERE tenant_code=:tenant
+            AND app_code=:app
+            AND dbconn_id=:dbconnId
+            AND code IN (:codes)
+            """;
+
+        Map<String, Object> p = new HashMap<>();
+        p.put("tenant", tenant);
+        p.put("app", app);
+        p.put("dbconnId", dbconnId);
+        p.put("codes", codes); // <-- List<String>
+
+        Map<String, Integer> out = new HashMap<>();
+        dqesJdbc.query(sql, p, (org.springframework.jdbc.core.RowCallbackHandler) rs -> 
+            out.put(rs.getString("code"), rs.getInt("id")));
+        return out;
     }
 
     // =========================
@@ -404,6 +356,13 @@ public class DqesMetadataRefreshService {
                fts_string_value, tenant_code, app_code)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (tenant_code, app_code, object_code)
+            DO UPDATE SET
+                object_name       = EXCLUDED.object_name,
+                db_table          = EXCLUDED.db_table,
+                alias_hint        = EXCLUDED.alias_hint,
+                description       = EXCLUDED.description,
+                fts_string_value  = EXCLUDED.fts_string_value
             """;
 
         batch(sql, rows, (ps, r) -> {
@@ -429,6 +388,19 @@ public class DqesMetadataRefreshService {
                description, fts_string_value, tenant_code, app_code)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, true, true, true, ?, ?, ?, ?)
+            ON CONFLICT (tenant_code, app_code, object_code, field_code)
+            DO UPDATE SET
+                field_label      = EXCLUDED.field_label,
+                alias_hint       = EXCLUDED.alias_hint,
+                mapping_type     = EXCLUDED.mapping_type,
+                column_name      = EXCLUDED.column_name,
+                data_type        = EXCLUDED.data_type,
+                not_null         = EXCLUDED.not_null,
+                allow_select     = TRUE,
+                allow_filter     = TRUE,
+                allow_sort       = TRUE,
+                description      = EXCLUDED.description,
+                fts_string_value = EXCLUDED.fts_string_value
             """;
         String mappingType = "COLUMN";
         batch(sql, rows, (ps, r) -> {
@@ -457,6 +429,15 @@ public class DqesMetadataRefreshService {
             VALUES
               (?, ?, ?, ?, 'LEFT', 'AUTO',
                10, jsonb_build_object('dbconn_id', ?), ?, ?, ?)
+            ON CONFLICT (tenant_code, app_code, code)
+            DO UPDATE SET
+                from_object_code = EXCLUDED.from_object_code,
+                to_object_code   = EXCLUDED.to_object_code,
+                relation_type    = EXCLUDED.relation_type,
+                join_type        = 'LEFT',
+                filter_mode      = 'AUTO',
+                path_weight      = 10,
+                relation_props   = jsonb_build_object('dbconn_id', EXCLUDED.dbconn_id)
             """;
 
         batch(sql, rows, (ps, r) -> {
@@ -471,33 +452,6 @@ public class DqesMetadataRefreshService {
         });
     }
 
-    private Map<String, Integer> fetchRelationIdsByCodes(
-        String tenant, String app, int dbconnId, List<String> codes) {
-
-        if (codes == null || codes.isEmpty()) return Map.of();
-
-        String sql = """
-            SELECT code, id
-            FROM dqes.qrytb_relation_info
-            WHERE tenant_code=:tenant
-            AND app_code=:app
-            AND dbconn_id=:dbconnId
-            AND code IN (:codes)
-            """;
-
-        Map<String, Object> p = new HashMap<>();
-        p.put("tenant", tenant);
-        p.put("app", app);
-        p.put("dbconnId", dbconnId);
-        p.put("codes", codes); // <-- List<String>
-
-        Map<String, Integer> out = new HashMap<>();
-        dqesJdbc.query(sql, p, (org.springframework.jdbc.core.RowCallbackHandler) rs -> 
-            out.put(rs.getString("code"), rs.getInt("id")));
-        return out;
-    }
-
-
     private void batchInsertJoinKeys(List<JoinKeyRow> rows) {
         if (rows.isEmpty()) return;
 
@@ -507,6 +461,12 @@ public class DqesMetadataRefreshService {
                tenant_code, app_code)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (relation_id, seq)
+            DO UPDATE SET
+                from_column_name = EXCLUDED.from_column_name,
+                operator         = EXCLUDED.operator,
+                to_column_name   = EXCLUDED.to_column_name,
+                null_safe        = EXCLUDED.null_safe
             """;
 
         batch(sql, rows, (ps, r) -> {
@@ -541,6 +501,8 @@ public class DqesMetadataRefreshService {
             });
         }
     }
+    
+
 
     private String toObjectCode(String schema, String table) {
         return (schema + "_" + table).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
@@ -581,24 +543,6 @@ public class DqesMetadataRefreshService {
         };
     }
 
-    private static class FkRow {
-        final String pkSchema, pkTable, pkCol;
-        final String fkSchema, fkTable, fkCol;
-        final int keySeq;
-
-        FkRow(String pkSchema, String pkTable, String pkCol,
-                String fkSchema, String fkTable, String fkCol,
-                int keySeq) {
-            this.pkSchema = pkSchema;
-            this.pkTable = pkTable;
-            this.pkCol = pkCol;
-            this.fkSchema = fkSchema;
-            this.fkTable = fkTable;
-            this.fkCol = fkCol;
-            this.keySeq = keySeq;
-        }
-    }
-
     private static String aliasHint(String s) {
         if (s == null) return "t";
         s = getFriendlyname(s);
@@ -631,4 +575,5 @@ public class DqesMetadataRefreshService {
         if (x.isEmpty()) return x;
         return Character.toUpperCase(x.charAt(0)) + x.substring(1);
     }
+    
 }

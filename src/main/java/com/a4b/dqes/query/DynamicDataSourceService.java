@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import com.a4b.dqes.crypto.CryptoService;
+import com.a4b.dqes.dto.record.DbConnInfo;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -74,7 +75,7 @@ public class DynamicDataSourceService {
     /**
      * Load connection info from cfgtb_dbconn_info
      */
-    private DbConnInfo loadConnectionInfo(String tenantCode, String appCode, Integer dbconnId) {
+    public DbConnInfo loadConnectionInfo(String tenantCode, String appCode, Integer dbconnId) {
         String sql = """
             SELECT id, tenant_code, app_code, conn_code, db_vendor, host, port, 
                    db_name, db_schema, username, password_enc, password_alg, 
@@ -110,11 +111,51 @@ public class DynamicDataSourceService {
             rs.getString("jdbc_params")
         ));
     }
+
+    /**
+     * Load connection info from cfgtb_dbconn_info
+     */
+    public DbConnInfo loadConnectionInfo(String tenantCode, String appCode, String dbconnCode) {
+        String sql = """
+            SELECT id, tenant_code, app_code, conn_code, db_vendor, host, port, 
+                   db_name, db_schema, username, password_enc, password_alg, 
+                   ssl_enabled, ssl_mode, jdbc_params::text
+            FROM dqes.cfgtb_dbconn_info
+            WHERE conn_code = :dbconnCode
+              AND tenant_code = :tenantCode
+              AND app_code = :appCode
+              AND current_flg = true
+              AND record_status <> 'D'
+            """;
+        
+        MapSqlParameterSource params = new MapSqlParameterSource()
+            .addValue("dbconnCode", dbconnCode)
+            .addValue("tenantCode", tenantCode)
+            .addValue("appCode", appCode);
+        
+        return dqesJdbc.queryForObject(sql, params, (rs, i) -> new DbConnInfo(
+            rs.getInt("id"),
+            rs.getString("tenant_code"),
+            rs.getString("app_code"),
+            rs.getString("conn_code"),
+            rs.getString("db_vendor"),
+            rs.getString("host"),
+            rs.getInt("port"),
+            rs.getString("db_name"),
+            rs.getString("db_schema"),
+            rs.getString("username"),
+            rs.getString("password_enc"),
+            rs.getString("password_alg"),
+            (Boolean) rs.getObject("ssl_enabled"),
+            rs.getString("ssl_mode"),
+            rs.getString("jdbc_params")
+        ));
+    }
     
     /**
      * Build HikariDataSource from connection info
      */
-    private HikariDataSource buildDataSource(DbConnInfo conn, String passwordPlain) {
+    public HikariDataSource buildDataSource(DbConnInfo conn, String passwordPlain) {
         String schema = (conn.dbSchema() == null || conn.dbSchema().isBlank()) 
             ? "public" 
             : conn.dbSchema();
@@ -235,25 +276,4 @@ public class DynamicDataSourceService {
         
         templateCache.remove(dbconnId);
     }
-    
-    /**
-     * Connection info record (reuse from DqesMetadataRefreshService)
-     */
-    private record DbConnInfo(
-        Integer id,
-        String tenantCode,
-        String appCode,
-        String connCode,
-        String dbVendor,
-        String host,
-        Integer port,
-        String dbName,
-        String dbSchema,
-        String username,
-        String passwordEnc,
-        String passwordAlg,
-        Boolean sslEnabled,
-        String sslMode,
-        String jdbcParams
-    ) {}
 }

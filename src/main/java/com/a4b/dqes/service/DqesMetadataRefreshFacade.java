@@ -9,15 +9,15 @@ import org.springframework.stereotype.Service;
 import com.a4b.dqes.dto.record.MetaRefreshRequest;
 import com.a4b.dqes.dto.record.MetaRefreshResponse;
 import com.a4b.dqes.dto.record.MetaRefreshStats;
+import com.a4b.dqes.service.metadata.MetadataRefreshService;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
+@RequiredArgsConstructor
 public class DqesMetadataRefreshFacade {
 
-  private final DqesMetadataRefreshService service;
-
-  public DqesMetadataRefreshFacade(DqesMetadataRefreshService service) {
-    this.service = service;
-  }
+  private final MetadataRefreshService service;
 
   public MetaRefreshResponse refresh(MetaRefreshRequest req) throws Exception {
     long t0 = System.currentTimeMillis();

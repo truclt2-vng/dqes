@@ -68,7 +68,6 @@ public class CreateCfgtbDbconnInfoCmd implements Serializable{
 
     private String description;
 
-
     @Schema(description = "Record status", example = "O (Open) or C (Closed)")
     private String recordStatus=RecordStatus.O.name();
 }

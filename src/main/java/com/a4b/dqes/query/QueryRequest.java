@@ -17,7 +17,7 @@ public class QueryRequest {
     private String appCode;
     private Integer dbconnId;
     private String rootObjectCode;      // Direct object code (e.g., "EMPLOYEE")
-    private String objectAlias;         // Or use alias hint (e.g., "emp")
+    private String rootObject;         // Or use alias hint (e.g., "emp")
     
     private List<String> selectFields;  // Alias-based format: ["emp.emp_name", "dept.dept_name"]
     private List<Filter> filters;

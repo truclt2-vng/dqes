@@ -15,7 +15,7 @@ public class QueryAST {
     private Integer dbconnId;
     
     // Root object (FROM clause)
-    private String rootObjectCode;
+    private String rootObject;
     
     // SELECT clause nodes
     private List<SelectNode> selects = new ArrayList<>();

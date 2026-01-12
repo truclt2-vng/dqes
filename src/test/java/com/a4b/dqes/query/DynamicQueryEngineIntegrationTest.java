@@ -110,7 +110,7 @@ class DynamicQueryEngineIntegrationTest {
         ast.setTenantCode(request.getTenantCode());
         ast.setAppCode(request.getAppCode());
         ast.setDbconnId(request.getDbconnId());
-        ast.setRootObjectCode(request.getRootObjectCode());
+        ast.setRootObject(request.getRootObjectCode());
         
         // Add nodes from request
         request.getSelectFields().forEach(sf -> 
@@ -270,7 +270,7 @@ class DynamicQueryEngineIntegrationTest {
         ast.setTenantCode(request.getTenantCode());
         ast.setAppCode(request.getAppCode());
         ast.setDbconnId(request.getDbconnId());
-        ast.setRootObjectCode(request.getRootObjectCode());
+        ast.setRootObject(request.getRootObjectCode());
         
         request.getSelectFields().forEach(sf -> 
             ast.addSelect(new com.a4b.dqes.query.ast.SelectNode(

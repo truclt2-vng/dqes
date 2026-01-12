@@ -57,7 +57,7 @@ public class JsonbObjectQueryExample {
         request.setTenantCode("SUPPER");
         request.setAppCode("SUPPER");
         request.setDbconnId(1);
-        request.setObjectAlias("codeList");  // Root object
+        request.setRootObject("codeList");  // Root object
         
         // Simple string-based select fields
         request.setSelectFields(Arrays.asList(
@@ -119,7 +119,7 @@ public class JsonbObjectQueryExample {
         request.setTenantCode("SUPPER");
         request.setAppCode("SUPPER");
         request.setDbconnId(1);
-        request.setObjectAlias("emp");
+        request.setRootObject("emp");
         
         // Simple string-based select - much cleaner!
         request.setSelectFields(Arrays.asList(

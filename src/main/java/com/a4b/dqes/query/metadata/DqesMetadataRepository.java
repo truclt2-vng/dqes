@@ -216,7 +216,7 @@ public class DqesMetadataRepository {
     
     // ========== ObjectPathCache ==========
     
-    @Cacheable(value = "dqes-object-path", key = "#tenantCode + '_' + #appCode + '_' + #fromObjectCode + '_' + #toObjectCode")
+    // @Cacheable(value = "dqes-object-path", key = "#tenantCode + '_' + #appCode + '_' + #fromObjectCode + '_' + #toObjectCode")
     public Optional<ObjectPathCache> findObjectPath(String tenantCode, String appCode, 
                                                      String fromObjectCode, String toObjectCode) {
         String sql = """

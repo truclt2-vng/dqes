@@ -137,7 +137,7 @@ public class DynamicQueryExecutor {
         
         // Resolve root object (support both objectAlias and rootObjectCode)
         String rootObjectCode = resolveRootObjectCode(request);
-        ast.setRootObjectCode(rootObjectCode);
+        ast.setRootObject(rootObjectCode);
         
         // Build alias-to-code map for resolving field references
         Map<String, String> aliasToCodeMap = buildAliasToCodeMap(
@@ -216,7 +216,7 @@ public class DynamicQueryExecutor {
             return request.getRootObjectCode();
         }
         
-        if (request.getObjectAlias() != null) {
+        if (request.getRootObject() != null) {
             // Find object by alias hint
             List<ObjectMeta> allObjects = metadataRepo.findAllObjectMeta(
                 request.getTenantCode(), 
@@ -225,13 +225,13 @@ public class DynamicQueryExecutor {
             );
             
             for (ObjectMeta obj : allObjects) {
-                if (request.getObjectAlias().equals(obj.getAliasHint())) {
+                if (request.getRootObject().equals(obj.getAliasHint())) {
                     return obj.getObjectCode();
                 }
             }
             
             throw new IllegalArgumentException(
-                "Object alias not found: " + request.getObjectAlias()
+                "Object alias not found: " + request.getRootObject()
             );
         }
         

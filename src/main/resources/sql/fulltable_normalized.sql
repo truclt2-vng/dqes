@@ -501,7 +501,11 @@ CREATE INDEX IF NOT EXISTS idx_qrytb_object_path_cache_lookup
 
 -- --------------------------
 -- 10) Refresh procedure for path cache (bounded expansion)
+-- Just support 'MANY_TO_ONE'
+-- ISSUE ERROR WITH 'ONE_TO_MANY'
 -- --------------------------
+DROP PROCEDURE dqes.refresh_qry_object_paths(varchar, varchar, int4, int4);
+
 CREATE OR REPLACE PROCEDURE dqes.refresh_qry_object_paths(
   p_tenant_code varchar,
   p_app_code varchar,
@@ -512,7 +516,7 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   DELETE FROM dqes.qrytb_object_path_cache
-   WHERE tenant_code = p_tenant_code
+  WHERE tenant_code = p_tenant_code
      AND app_code = p_app_code
      AND dbconn_id = p_dbconn_id;
 
@@ -528,6 +532,7 @@ BEGIN
       AND r.current_flg = true
       AND r.record_status <> 'D'
       AND r.is_navigable = true
+      AND r.relation_type = 'MANY_TO_ONE'
   ),
   paths AS (
     SELECT

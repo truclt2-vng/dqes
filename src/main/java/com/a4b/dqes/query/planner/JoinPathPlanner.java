@@ -40,29 +40,29 @@ public class JoinPathPlanner {
     public void planJoins(QueryAST ast) {
         String tenantCode = ast.getTenantCode();
         String appCode = ast.getAppCode();
-        String rootObjectCode = ast.getRootObjectCode();
+        String rootObject = ast.getRootObject();
         
         // 1. Collect all referenced objects
         Set<String> referencedObjects = collectReferencedObjects(ast);
-        referencedObjects.remove(rootObjectCode); // Root doesn't need JOIN
+        referencedObjects.remove(rootObject); // Root doesn't need JOIN
         
         if (referencedObjects.isEmpty()) {
-            log.debug("No joins needed for root object: {}", rootObjectCode);
+            log.debug("No joins needed for root object: {}", rootObject);
             return;
         }
         
-        log.debug("Planning joins from root={} to objects={}", rootObjectCode, referencedObjects);
+        log.debug("Planning joins from root={} to objects={}", rootObject, referencedObjects);
         
         // 2. Find shortest paths using pre-computed cache
         Map<String, ObjectPathCache> pathCache = new HashMap<>();
         for (String targetObject : referencedObjects) {
             Optional<ObjectPathCache> path = metadataRepo.findObjectPath(
-                tenantCode, appCode, rootObjectCode, targetObject
+                tenantCode, appCode, rootObject, targetObject
             );
             
             if (path.isEmpty()) {
                 throw new IllegalStateException(
-                    "No navigation path found from " + rootObjectCode + " to " + targetObject + 
+                    "No navigation path found from " + rootObject + " to " + targetObject + 
                     ". Run refresh_qry_object_paths() procedure."
                 );
             }
@@ -138,8 +138,7 @@ public class JoinPathPlanner {
         joinNode.setRelationCode(rel.getCode());
         joinNode.setFromObjectCode(rel.getFromObjectCode());
         joinNode.setToObjectCode(rel.getToObjectCode());
-        joinNode.setJoinType(rel.getJoinType() == RelationMeta.JoinType.INNER 
-            ? JoinType.INNER : JoinType.LEFT);
+        joinNode.setJoinType(rel.getJoinType() == RelationMeta.JoinType.INNER ? JoinType.INNER : JoinType.LEFT);
         joinNode.setDependsOnRelationCode(rel.getDependsOnCode());
         
         // Determine JOIN vs EXISTS strategy
@@ -229,8 +228,7 @@ public class JoinPathPlanner {
         for (JoinNode join : joins) {
             if (join.getDependsOnRelationCode() != null && 
                 nodeMap.containsKey(join.getDependsOnRelationCode())) {
-                dependencyGraph.get(join.getDependsOnRelationCode())
-                    .add(join.getRelationCode());
+                dependencyGraph.get(join.getDependsOnRelationCode()).add(join.getRelationCode());
             }
         }
         
