@@ -1,4 +1,4 @@
-package com.a4b.dqes.query;
+package com.a4b.dqes.datasource;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

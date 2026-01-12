@@ -1,276 +1,287 @@
 package com.a4b.dqes.query.planner;
 
-import com.a4b.dqes.query.ast.FilterNode;
-import com.a4b.dqes.query.ast.JoinNode;
-import com.a4b.dqes.query.ast.JoinNode.JoinPredicate;
-import com.a4b.dqes.query.ast.JoinNode.JoinStrategy;
-import com.a4b.dqes.query.ast.JoinNode.JoinType;
-import com.a4b.dqes.query.ast.QueryAST;
-import com.a4b.dqes.query.ast.SelectNode;
-import com.a4b.dqes.query.ast.SortNode;
-import com.a4b.dqes.query.metadata.DqesMetadataRepository;
-import com.a4b.dqes.query.metadata.ObjectPathCache;
-import com.a4b.dqes.query.metadata.RelationMeta;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
-/**
- * JoinPathPlanner - Plans multi-hop JOIN graph using BFS + depends_on ordering
- * 
- * Strategy:
- * 1. Identify all required objects from SELECT/WHERE/ORDER BY
- * 2. Use qrytb_object_path_cache for shortest paths (pre-computed via BFS)
- * 3. Resolve relation dependencies (depends_on_code) for topological order
- * 4. Apply EXISTS strategy for ONE_TO_MANY filter-only relations
- */
-@Slf4j
-@Component
-@RequiredArgsConstructor
-public class JoinPathPlanner {
-    
-    private final DqesMetadataRepository metadataRepo;
-    
-    /**
-     * Plan JOIN graph for the query AST
-     * Mutates QueryAST.joins with computed JoinNodes
-     */
-    public void planJoins(QueryAST ast) {
-        String tenantCode = ast.getTenantCode();
-        String appCode = ast.getAppCode();
-        String rootObject = ast.getRootObject();
-        
-        // 1. Collect all referenced objects
-        Set<String> referencedObjects = collectReferencedObjects(ast);
-        referencedObjects.remove(rootObject); // Root doesn't need JOIN
-        
-        if (referencedObjects.isEmpty()) {
-            log.debug("No joins needed for root object: {}", rootObject);
-            return;
+import com.a4b.dqes.query.meta.FilterMode;
+import com.a4b.dqes.query.meta.ObjectMeta;
+import com.a4b.dqes.query.meta.RelationJoinKey;
+import com.a4b.dqes.query.meta.RelationType;
+import com.a4b.dqes.query.util.Ident;
+
+public final class JoinPathPlanner {
+
+    private final AliasAllocator aliasAllocator = new AliasAllocator();
+
+    public JoinPlan plan(
+            PlanRequest req,
+            Graph graph,
+            Map<String, ObjectMeta> objectMetaByCode,
+            Map<Integer, List<RelationJoinKey>> joinKeysByRelationId
+    ) {
+        Objects.requireNonNull(req, "req");
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(objectMetaByCode, "objectMetaByCode");
+        Objects.requireNonNull(joinKeysByRelationId, "joinKeysByRelationId");
+
+        String root = req.rootObjectCode();
+        ObjectMeta rootMeta = mustMeta(objectMetaByCode, root);
+
+        JoinPlan out = new JoinPlan(root, rootMeta, aliasAllocator.alloc(rootMeta));
+
+        Set<String> needed = req.allNeededObjects();
+        needed.remove(root);
+
+        Map<String, List<Edge>> pathByTarget = new LinkedHashMap<>();
+        for (String target : needed) {
+            List<Edge> path = shortestPathBfsHopThenWeight(root, target, graph);
+            if (path == null) throw new IllegalStateException("No join path: " + root + " -> " + target);
+            pathByTarget.put(target, path);
         }
-        
-        log.debug("Planning joins from root={} to objects={}", rootObject, referencedObjects);
-        
-        // 2. Find shortest paths using pre-computed cache
-        Map<String, ObjectPathCache> pathCache = new HashMap<>();
-        for (String targetObject : referencedObjects) {
-            Optional<ObjectPathCache> path = metadataRepo.findObjectPath(
-                tenantCode, appCode, rootObject, targetObject
-            );
-            
-            if (path.isEmpty()) {
-                throw new IllegalStateException(
-                    "No navigation path found from " + rootObject + " to " + targetObject + 
-                    ". Run refresh_qry_object_paths() procedure."
-                );
+
+        // JOIN for required objects
+        Set<Edge> joinEdgeSet = new LinkedHashSet<>();
+        for (String target : req.requiredObjects()) {
+            if (target.equals(root)) continue;
+            List<Edge> p = pathByTarget.get(target);
+            if (p != null) joinEdgeSet.addAll(p);
+        }
+        emitJoinEdgesInOrder(joinEdgeSet, out, objectMetaByCode, joinKeysByRelationId);
+
+        // EXISTS/JOIN for filter-only
+        for (String filterTarget : req.filterOnlyObjects()) {
+            if (filterTarget.equals(root)) continue;
+            if (!req.isFilterOnly(filterTarget)) continue;
+
+            List<Edge> path = pathByTarget.get(filterTarget);
+            if (path == null || path.isEmpty()) continue;
+
+            JoinMode mode = decideModeForFilterOnlyPath(path);
+
+            if (mode == JoinMode.JOIN) {
+                emitJoinEdgesInOrder(new LinkedHashSet<>(path), out, objectMetaByCode, joinKeysByRelationId);
+            } else {
+                ExistsStep ex = buildExistsForPath(out, path, objectMetaByCode, joinKeysByRelationId);
+                out.addStep(ex);
             }
-            
-            pathCache.put(targetObject, path.get());
         }
-        
-        // 3. Collect all relation codes from paths
-        Set<String> requiredRelationCodes = pathCache.values().stream()
-            .flatMap(p -> p.getPathRelationCodes().stream())
-            .collect(Collectors.toSet());
-        
-        // 4. Load relation metadata with join keys
-        Map<String, RelationMeta> relationMetaMap = new HashMap<>();
-        for (String relCode : requiredRelationCodes) {
-            Optional<RelationMeta> rel = metadataRepo.findRelationMeta(tenantCode, appCode, relCode);
-            if (rel.isEmpty()) {
-                throw new IllegalStateException("Relation metadata not found: " + relCode);
-            }
-            relationMetaMap.put(relCode, rel.get());
-        }
-        
-        // 5. Build JoinNodes from relations
-        List<JoinNode> joinNodes = new ArrayList<>();
-        for (RelationMeta rel : relationMetaMap.values()) {
-            JoinNode joinNode = buildJoinNode(rel, ast);
-            joinNodes.add(joinNode);
-        }
-        
-        // 6. Topological sort based on depends_on_code
-        List<JoinNode> sortedJoins = topologicalSort(joinNodes, relationMetaMap);
-        
-        // 7. Set execution order
-        for (int i = 0; i < sortedJoins.size(); i++) {
-            sortedJoins.get(i).setExecutionOrder(i);
-        }
-        
-        ast.setJoins(sortedJoins);
-        
-        log.debug("Planned {} joins with execution order", sortedJoins.size());
+
+        return out;
     }
-    
-    /**
-     * Collect all object codes referenced in query
-     */
-    private Set<String> collectReferencedObjects(QueryAST ast) {
-        Set<String> objects = new HashSet<>();
-        
-        // From SELECT
-        for (SelectNode select : ast.getSelects()) {
-            objects.add(select.getObjectCode());
-        }
-        
-        // From WHERE
-        for (FilterNode filter : ast.getFilters()) {
-            objects.add(filter.getObjectCode());
-        }
-        
-        // From ORDER BY
-        for (SortNode sort : ast.getSorts()) {
-            objects.add(sort.getObjectCode());
-        }
-        
-        return objects;
-    }
-    
-    /**
-     * Build JoinNode from RelationMeta
-     * Apply EXISTS strategy for ONE_TO_MANY filter-only relations
-     */
-    private JoinNode buildJoinNode(RelationMeta rel, QueryAST ast) {
-        JoinNode joinNode = new JoinNode();
-        joinNode.setRelationCode(rel.getCode());
-        joinNode.setFromObjectCode(rel.getFromObjectCode());
-        joinNode.setToObjectCode(rel.getToObjectCode());
-        joinNode.setJoinType(rel.getJoinType() == RelationMeta.JoinType.INNER ? JoinType.INNER : JoinType.LEFT);
-        joinNode.setDependsOnRelationCode(rel.getDependsOnCode());
-        
-        // Determine JOIN vs EXISTS strategy
-        JoinStrategy strategy = determineJoinStrategy(rel, ast);
-        joinNode.setStrategy(strategy);
-        
-        // Map join keys
-        List<JoinPredicate> predicates = rel.getJoinKeys().stream()
-            .map(jk -> new JoinPredicate(
-                jk.getFromColumnName(),
-                jk.getOperator(),
-                jk.getToColumnName(),
-                jk.getNullSafe()
-            ))
-            .collect(Collectors.toList());
-        
-        joinNode.setPredicates(predicates);
-        
-        log.debug("Built JoinNode: {} -> {} (strategy={})", 
-            rel.getFromObjectCode(), rel.getToObjectCode(), strategy);
-        
-        return joinNode;
-    }
-    
-    /**
-     * Determine JOIN vs EXISTS strategy
-     * 
-     * Rules:
-     * - EXISTS_ONLY: Always use EXISTS
-     * - EXISTS_PREFERRED: Use EXISTS if object is filter-only (not selected/sorted)
-     * - AUTO: Use EXISTS for ONE_TO_MANY filter-only
-     * - JOIN_ONLY: Always use JOIN
-     */
-    private JoinStrategy determineJoinStrategy(RelationMeta rel, QueryAST ast) {
-        String toObject = rel.getToObjectCode();
-        RelationMeta.FilterMode filterMode = rel.getFilterMode();
-        
-        // Force EXISTS
-        if (filterMode == RelationMeta.FilterMode.EXISTS_ONLY) {
-            return JoinStrategy.EXISTS_ONLY;
-        }
-        
-        // Check if object is used in SELECT or ORDER BY
-        boolean isSelected = ast.getSelects().stream()
-            .anyMatch(s -> s.getObjectCode().equals(toObject));
-        boolean isSorted = ast.getSorts().stream()
-            .anyMatch(s -> s.getObjectCode().equals(toObject));
-        
-        boolean isUsedInOutput = isSelected || isSorted;
-        
-        // Force JOIN
-        if (filterMode == RelationMeta.FilterMode.JOIN_ONLY) {
-            return JoinStrategy.JOIN;
-        }
-        
-        // EXISTS_PREFERRED: Use EXISTS if filter-only
-        if (filterMode == RelationMeta.FilterMode.EXISTS_PREFERRED && !isUsedInOutput) {
-            return JoinStrategy.EXISTS;
-        }
-        
-        // AUTO mode: Use EXISTS for ONE_TO_MANY filter-only
-        if (filterMode == RelationMeta.FilterMode.AUTO) {
-            if (rel.getRelationType() == RelationMeta.RelationType.ONE_TO_MANY && !isUsedInOutput) {
-                return JoinStrategy.EXISTS;
-            }
-        }
-        
-        // Default: standard JOIN
-        return JoinStrategy.JOIN;
-    }
-    
-    /**
-     * Topological sort based on depends_on_code
-     * Ensures dependencies are joined before dependents
-     */
-    private List<JoinNode> topologicalSort(List<JoinNode> joins, Map<String, RelationMeta> metaMap) {
-        // Build dependency graph
-        Map<String, List<String>> dependencyGraph = new HashMap<>();
-        Map<String, JoinNode> nodeMap = new HashMap<>();
-        
-        for (JoinNode join : joins) {
-            nodeMap.put(join.getRelationCode(), join);
-            dependencyGraph.put(join.getRelationCode(), new ArrayList<>());
-        }
-        
-        // Add edges: dependsOn -> relation
-        for (JoinNode join : joins) {
-            if (join.getDependsOnRelationCode() != null && 
-                nodeMap.containsKey(join.getDependsOnRelationCode())) {
-                dependencyGraph.get(join.getDependsOnRelationCode()).add(join.getRelationCode());
-            }
-        }
-        
-        // Kahn's algorithm for topological sort
-        Map<String, Integer> inDegree = new HashMap<>();
-        for (String rel : nodeMap.keySet()) {
-            inDegree.put(rel, 0);
-        }
-        
-        for (List<String> deps : dependencyGraph.values()) {
-            for (String dep : deps) {
-                inDegree.put(dep, inDegree.get(dep) + 1);
-            }
-        }
-        
-        Queue<String> queue = new LinkedList<>();
-        for (Map.Entry<String, Integer> entry : inDegree.entrySet()) {
-            if (entry.getValue() == 0) {
-                queue.offer(entry.getKey());
-            }
-        }
-        
-        List<JoinNode> sorted = new ArrayList<>();
-        while (!queue.isEmpty()) {
-            String current = queue.poll();
-            sorted.add(nodeMap.get(current));
-            
-            for (String dependent : dependencyGraph.get(current)) {
-                int newDegree = inDegree.get(dependent) - 1;
-                inDegree.put(dependent, newDegree);
-                if (newDegree == 0) {
-                    queue.offer(dependent);
+
+    /* BFS hop-first, weight tie-break */
+    private List<Edge> shortestPathBfsHopThenWeight(String start, String target, Graph graph) {
+        if (start.equals(target)) return List.of();
+
+        Map<String, Prev> bestPrev = new HashMap<>();
+        ArrayDeque<String> q = new ArrayDeque<>();
+        q.add(start);
+        bestPrev.put(start, new Prev(null, null, 0, 0));
+
+        while (!q.isEmpty()) {
+            String u = q.poll();
+            Prev pu = bestPrev.get(u);
+
+            for (Edge e : graph.edgesFrom(u)) {
+                if (!e.navigable()) continue;
+
+                String v = e.to();
+                int newHops = pu.hops + 1;
+                int newWeight = pu.weightSum + e.weight();
+                Prev cur = bestPrev.get(v);
+
+                boolean better = (cur == null)
+                        || (newHops < cur.hops)
+                        || (newHops == cur.hops && newWeight < cur.weightSum);
+
+                if (better) {
+                    bestPrev.put(v, new Prev(u, e, newHops, newWeight));
+                    q.add(v);
                 }
             }
         }
-        
-        // Check for cycles
-        if (sorted.size() != joins.size()) {
-            log.warn("Circular dependency detected in relation depends_on graph. Using original order.");
-            return joins;
+
+        Prev pt = bestPrev.get(target);
+        if (pt == null || pt.prevEdge == null) return null;
+
+        List<Edge> rev = new ArrayList<>();
+        String cur = target;
+        while (!cur.equals(start)) {
+            Prev p = bestPrev.get(cur);
+            if (p == null || p.prevNode == null || p.prevEdge == null) return null;
+            rev.add(p.prevEdge);
+            cur = p.prevNode;
         }
-        
-        return sorted;
+        Collections.reverse(rev);
+        return rev;
+    }
+
+    private record Prev(String prevNode, Edge prevEdge, int hops, int weightSum) {}
+
+    private void emitJoinEdgesInOrder(
+            Set<Edge> edges,
+            JoinPlan out,
+            Map<String, ObjectMeta> objectMetaByCode,
+            Map<Integer, List<RelationJoinKey>> joinKeysByRelationId
+    ) {
+        if (edges.isEmpty()) return;
+
+        Set<Edge> remaining = new LinkedHashSet<>(edges);
+        boolean progressed;
+
+        do {
+            progressed = false;
+
+            for (Edge e : new ArrayList<>(remaining)) {
+                if (!out.hasAlias(e.from())) continue;
+
+                if (!out.hasAlias(e.to())) {
+                    ObjectMeta toMeta = mustMeta(objectMetaByCode, e.to());
+                    out.putAlias(e.to(), aliasAllocator.alloc(toMeta));
+                }
+
+                String fromAlias = out.aliasOf(e.from());
+                String toAlias = out.aliasOf(e.to());
+                ObjectMeta toMeta = mustMeta(objectMetaByCode, e.to());
+
+                String on = buildPredicate(e.id(), fromAlias, toAlias, joinKeysByRelationId);
+
+                out.addStep(new JoinJoinStep(
+                        e.id(),
+                        e.joinType(),
+                        e.to(),
+                        toMeta.dbTable(),
+                        toAlias,
+                        on
+                ));
+
+                remaining.remove(e);
+                progressed = true;
+            }
+        } while (progressed);
+
+        if (!remaining.isEmpty()) {
+            String left = remaining.stream().map(Edge::code).collect(Collectors.joining(","));
+            throw new IllegalStateException("Cannot emit joins (cycle/unreachable). Remaining: " + left);
+        }
+    }
+
+    private String buildPredicate(int relationId, String fromAlias, String toAlias, Map<Integer, List<RelationJoinKey>> joinKeysByRelationId) {
+        List<RelationJoinKey> keys = joinKeysByRelationId.get(relationId);
+        if (keys == null || keys.isEmpty()) {
+            throw new IllegalStateException("Missing join keys for relation_id=" + relationId);
+        }
+
+        return keys.stream()
+                .sorted(Comparator.comparingInt(RelationJoinKey::seq))
+                .map(k -> {
+                    String left = Ident.col(fromAlias, k.fromColumnName());
+                    String right = Ident.col(toAlias, k.toColumnName());
+
+                    if (k.nullSafe()) {
+                        if ("=".equals(k.operator())) return left + " IS NOT DISTINCT FROM " + right;
+                        if ("!=".equals(k.operator())) return left + " IS DISTINCT FROM " + right;
+                    }
+                    return left + " " + k.operator() + " " + right;
+                })
+                .collect(Collectors.joining(" AND "));
+    }
+
+    private JoinMode decideModeForFilterOnlyPath(List<Edge> path) {
+        boolean anyJoinOnly = path.stream().anyMatch(e -> e.filterMode() == FilterMode.JOIN_ONLY);
+        boolean anyExistsOnly = path.stream().anyMatch(e -> e.filterMode() == FilterMode.EXISTS_ONLY);
+        if (anyJoinOnly) return JoinMode.JOIN;
+        if (anyExistsOnly) return JoinMode.EXISTS;
+
+        boolean anyExistsPreferred = path.stream().anyMatch(e -> e.filterMode() == FilterMode.EXISTS_PREFERRED);
+        if (anyExistsPreferred) return JoinMode.EXISTS;
+
+        boolean risky = path.stream().anyMatch(e ->
+                e.filterMode() == FilterMode.AUTO &&
+                        (e.relationType() == RelationType.ONE_TO_MANY || e.relationType() == RelationType.MANY_TO_MANY)
+        );
+        return risky ? JoinMode.EXISTS : JoinMode.JOIN;
+    }
+
+    private ExistsStep buildExistsForPath(
+            JoinPlan out,
+            List<Edge> path,
+            Map<String, ObjectMeta> objectMetaByCode,
+            Map<Integer, List<RelationJoinKey>> joinKeysByRelationId
+    ) {
+        AliasAllocator local = new AliasAllocator();
+        Map<String, String> localAliasByObj = new HashMap<>();
+
+        Edge first = path.getFirst();
+        if (!out.hasAlias(first.from())) {
+            throw new IllegalStateException("Outer alias missing for EXISTS anchor: " + first.from());
+        }
+        String outerFromAlias = out.aliasOf(first.from());
+
+        String baseObj = first.to();
+        ObjectMeta baseMeta = mustMeta(objectMetaByCode, baseObj);
+        String baseAlias = local.alloc(baseMeta);
+        localAliasByObj.put(baseObj, baseAlias);
+
+        StringBuilder fromJoin = new StringBuilder();
+        fromJoin.append("FROM ")
+                .append(Ident.quoteSchemaTable(baseMeta.dbTable()))
+                .append(" ")
+                .append(baseAlias)
+                .append(" ");
+
+        String linkPredicate = buildPredicate(first.id(), outerFromAlias, baseAlias, joinKeysByRelationId);
+
+        for (int i = 1; i < path.size(); i++) {
+            Edge e = path.get(i);
+
+            String subFromObj = e.from();
+            String subToObj = e.to();
+
+            String subFromAlias = localAliasByObj.get(subFromObj);
+            if (subFromAlias == null) {
+                ObjectMeta m = mustMeta(objectMetaByCode, subFromObj);
+                subFromAlias = local.alloc(m);
+                localAliasByObj.put(subFromObj, subFromAlias);
+            }
+
+            ObjectMeta toMeta = mustMeta(objectMetaByCode, subToObj);
+            String subToAlias = local.alloc(toMeta);
+            localAliasByObj.put(subToObj, subToAlias);
+
+            String on = buildPredicate(e.id(), subFromAlias, subToAlias, joinKeysByRelationId);
+
+            fromJoin.append(e.joinType().name())
+                    .append(" JOIN ")
+                    .append(Ident.quoteSchemaTable(toMeta.dbTable()))
+                    .append(" ")
+                    .append(subToAlias)
+                    .append(" ON ")
+                    .append(on)
+                    .append(" ");
+        }
+
+        String targetObj = path.getLast().to();
+        String targetAlias = localAliasByObj.get(targetObj);
+
+        String existsSql = "EXISTS (SELECT 1 " + fromJoin + "WHERE " + linkPredicate + " " + ExistsStep.FILTER_TOKEN + ")";
+
+        return new ExistsStep(targetObj, targetAlias, existsSql);
+    }
+
+    private ObjectMeta mustMeta(Map<String, ObjectMeta> map, String objectCode) {
+        ObjectMeta m = map.get(objectCode);
+        if (m == null) throw new IllegalStateException("Missing object_meta for object_code=" + objectCode);
+        return m;
     }
 }

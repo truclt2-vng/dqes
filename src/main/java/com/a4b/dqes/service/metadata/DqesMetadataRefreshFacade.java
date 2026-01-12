@@ -2,14 +2,13 @@
  * Created: Jan 09, 2026 11:45:39 AM
  * Copyright © 2026 by A4B. All rights reserved
  */
-package com.a4b.dqes.service;
+package com.a4b.dqes.service.metadata;
 
 import org.springframework.stereotype.Service;
 
 import com.a4b.dqes.dto.record.MetaRefreshRequest;
 import com.a4b.dqes.dto.record.MetaRefreshResponse;
 import com.a4b.dqes.dto.record.MetaRefreshStats;
-import com.a4b.dqes.service.metadata.MetadataRefreshService;
 
 import lombok.RequiredArgsConstructor;
 

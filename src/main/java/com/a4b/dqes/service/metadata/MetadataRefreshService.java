@@ -25,9 +25,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.a4b.dqes.crypto.CryptoService;
+import com.a4b.dqes.datasource.DynamicDataSourceService;
 import com.a4b.dqes.dto.record.DbConnInfo;
 import com.a4b.dqes.dto.record.MetaRefreshStats;
-import com.a4b.dqes.query.DynamicDataSourceService;
 import com.google.common.base.CaseFormat;
 
 import lombok.RequiredArgsConstructor;

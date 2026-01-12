@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.a4b.dqes.dto.record.MetaRefreshRequest;
 import com.a4b.dqes.dto.record.MetaRefreshResponse;
-import com.a4b.dqes.service.DqesMetadataRefreshFacade;
+import com.a4b.dqes.service.metadata.DqesMetadataRefreshFacade;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.tags.Tags;
