@@ -1,20 +1,24 @@
 package com.a4b.dqes.query.metadata;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Repository for dynamic query metadata
@@ -77,7 +81,7 @@ public class DqesMetadataRepository {
     // ========== RelationMeta ==========
     
     @Cacheable(value = "dqes-relation-meta", key = "#tenantCode + '_' + #appCode + '_' + #relationCode")
-    public Optional<RelationMeta> findRelationMeta(String tenantCode, String appCode, String relationCode) {
+    public Optional<List<RelationMeta>> findRelationMeta(String tenantCode, String appCode, List<String> relationCodes) {
         String sql = """
             SELECT r.id, r.tenant_code, r.app_code, r.code, r.from_object_code, r.to_object_code,
                    r.relation_type, r.join_type, r.filter_mode, r.is_required, r.is_navigable,
@@ -85,7 +89,7 @@ public class DqesMetadataRepository {
             FROM dqes.qrytb_relation_info r
             WHERE r.tenant_code = :tenantCode
               AND r.app_code = :appCode
-              AND r.code = :relationCode
+              AND r.code in (:relationCode)
               AND r.current_flg = true
               AND r.record_status <> 'D'
             """;
@@ -93,7 +97,7 @@ public class DqesMetadataRepository {
         MapSqlParameterSource params = new MapSqlParameterSource()
             .addValue("tenantCode", tenantCode)
             .addValue("appCode", appCode)
-            .addValue("relationCode", relationCode);
+            .addValue("relationCode", relationCodes);
         
         List<RelationMeta> results = jdbcTemplate.query(sql, params, new RelationMetaRowMapper());
         
@@ -101,10 +105,19 @@ public class DqesMetadataRepository {
             return Optional.empty();
         }
         
-        RelationMeta meta = results.get(0);
-        meta.setJoinKeys(findJoinKeys(meta.getId()));
+        List<Integer> ids = results.stream()
+            .map(RelationMeta::getId)
+            .filter(Objects::nonNull)
+            .toList();
+        List<RelationMeta.JoinKeyMeta> joinKeys =  findJoinKeys(ids);
+        Map<Integer, List<RelationMeta.JoinKeyMeta>> joinKeysMap = joinKeys.stream()
+            .collect(Collectors.groupingBy(RelationMeta.JoinKeyMeta::getRelationId));
+
+        for (RelationMeta joinKeyMeta : results) {
+            joinKeyMeta.setJoinKeys(joinKeysMap.get(joinKeyMeta.getId()));
+        }
         
-        return Optional.of(meta);
+        return Optional.of(results);
     }
     
     @Cacheable(value = "dqes-relation-meta-from", key = "#tenantCode + '_' + #appCode + '_' + #fromObjectCode")
@@ -148,6 +161,32 @@ public class DqesMetadataRepository {
         
         MapSqlParameterSource params = new MapSqlParameterSource()
             .addValue("relationId", relationId);
+        
+        return jdbcTemplate.query(sql, params, (rs, rowNum) -> {
+            RelationMeta.JoinKeyMeta key = new RelationMeta.JoinKeyMeta();
+            key.setId(rs.getInt("id"));
+            key.setRelationId(rs.getInt("relation_id"));
+            key.setSeq(rs.getInt("seq"));
+            key.setFromColumnName(rs.getString("from_column_name"));
+            key.setOperator(rs.getString("operator"));
+            key.setToColumnName(rs.getString("to_column_name"));
+            key.setNullSafe(rs.getBoolean("null_safe"));
+            return key;
+        });
+    }
+
+    private List<RelationMeta.JoinKeyMeta> findJoinKeys(List<Integer> relationIds) {
+        String sql = """
+            SELECT id, relation_id, seq, from_column_name, operator, to_column_name, null_safe
+            FROM dqes.qrytb_relation_join_key
+            WHERE relation_id in (:relationIds)
+              AND current_flg = true
+              AND record_status <> 'D'
+            ORDER BY seq
+            """;
+        
+        MapSqlParameterSource params = new MapSqlParameterSource()
+            .addValue("relationIds", relationIds);
         
         return jdbcTemplate.query(sql, params, (rs, rowNum) -> {
             RelationMeta.JoinKeyMeta key = new RelationMeta.JoinKeyMeta();
@@ -217,8 +256,9 @@ public class DqesMetadataRepository {
     // ========== ObjectPathCache ==========
     
     // @Cacheable(value = "dqes-object-path", key = "#tenantCode + '_' + #appCode + '_' + #fromObjectCode + '_' + #toObjectCode")
-    public Optional<ObjectPathCache> findObjectPath(String tenantCode, String appCode, 
-                                                     String fromObjectCode, String toObjectCode) {
+    public Optional<List<ObjectPathCache>> findObjectPath(String tenantCode, String appCode, String fromObjectCode
+        // , String toObjectCode
+    ) {
         String sql = """
             SELECT id, tenant_code, app_code, from_object_code, to_object_code,
                    hop_count, total_weight, path_relation_codes, dbconn_id
@@ -226,7 +266,6 @@ public class DqesMetadataRepository {
             WHERE tenant_code = :tenantCode
               AND app_code = :appCode
               AND from_object_code = :fromObjectCode
-              AND to_object_code = :toObjectCode
               AND current_flg = true
               AND record_status <> 'D'
             """;
@@ -235,10 +274,11 @@ public class DqesMetadataRepository {
             .addValue("tenantCode", tenantCode)
             .addValue("appCode", appCode)
             .addValue("fromObjectCode", fromObjectCode)
-            .addValue("toObjectCode", toObjectCode);
+            // .addValue("toObjectCode", toObjectCode)
+            ;
         
         List<ObjectPathCache> results = jdbcTemplate.query(sql, params, new ObjectPathCacheRowMapper());
-        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+        return results.isEmpty() ? Optional.empty() : Optional.of(results);
     }
     
     // ========== ExprAllowlist ==========

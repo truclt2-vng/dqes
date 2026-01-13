@@ -26,6 +26,7 @@ public class JoinNode {
     // Runtime alias allocation (set by SQL generator)
     private String fromAlias;
     private String toAlias;
+    private Integer totalWeight;
     
     // Dependency order (for topological sort)
     private String dependsOnRelationCode;

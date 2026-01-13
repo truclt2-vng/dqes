@@ -65,7 +65,8 @@ public class MetadataRefreshService {
         private record RelationRow(
             int dbconnId, String tenant, String app,
             String code, String fromObject, String toObject,
-            String relationType  // MANY_TO_ONE or ONE_TO_MANY
+            String relationType,  // MANY_TO_ONE or ONE_TO_MANY
+            String joinAlias
     ) {}
     
     private record JoinKeyRow(
@@ -119,16 +120,16 @@ public class MetadataRefreshService {
         }
 
                 // 3) optional: refresh path cache
-        dqesJdbc.getJdbcTemplate().execute(
-                "CALL dqes.refresh_qry_object_paths(?, ?, ?, ?)",
-                (PreparedStatementCallback<Void>) ps -> {
-                    ps.setString(1, tenantCode);
-                    ps.setString(2, appCode);
-                    ps.setInt(3, conn.id());
-                    ps.setInt(4, 6);
-                    ps.execute();
-                    return null;
-                });
+        // dqesJdbc.getJdbcTemplate().execute(
+        //         "CALL dqes.refresh_qry_object_paths(?, ?, ?, ?)",
+        //         (PreparedStatementCallback<Void>) ps -> {
+        //             ps.setString(1, tenantCode);
+        //             ps.setString(2, appCode);
+        //             ps.setInt(3, conn.id());
+        //             ps.setInt(4, 6);
+        //             ps.execute();
+        //             return null;
+        //         });
 
         return stats.toRecord();
     }
@@ -262,7 +263,7 @@ public class MetadataRefreshService {
 
                         // MANY_TO_ONE: FK table -> PK table (Employee -> Department)
                         relations.add(new RelationRow(conn.id(), tenantCode, appCode, 
-                            relCode, fromObject, toObject, "MANY_TO_ONE"));
+                            relCode, fromObject, toObject, "MANY_TO_ONE", joinAlias(rows)));
 
                         // defer join keys until we have relation_id
                         pendingJoinKeys.add(PendingJoinKey.of(relCode, rows));
@@ -272,7 +273,7 @@ public class MetadataRefreshService {
                                 .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
                         
                         relations.add(new RelationRow(conn.id(), tenantCode, appCode,
-                            reverseRelCode, toObject, fromObject, "ONE_TO_MANY"));
+                            reverseRelCode, toObject, fromObject, "ONE_TO_MANY", joinAlias(rows)));
                         
                         // Reverse join keys (swap from/to)
                         List<FkRow> reverseRows = new ArrayList<>();
@@ -424,16 +425,17 @@ public class MetadataRefreshService {
 
         final String sql = """
             INSERT INTO dqes.qrytb_relation_info
-              (code, from_object_code, to_object_code, relation_type, join_type, filter_mode,
+              (code, from_object_code, to_object_code, relation_type, join_alias, join_type, filter_mode,
                path_weight, relation_props, dbconn_id, tenant_code, app_code)
             VALUES
-              (?, ?, ?, ?, 'LEFT', 'AUTO',
+              (?, ?, ?, ?, ?,'LEFT', 'AUTO',
                10, jsonb_build_object('dbconn_id', ?), ?, ?, ?)
             ON CONFLICT (tenant_code, app_code, code)
             DO UPDATE SET
                 from_object_code = EXCLUDED.from_object_code,
                 to_object_code   = EXCLUDED.to_object_code,
                 relation_type    = EXCLUDED.relation_type,
+                join_alias       = EXCLUDED.join_alias,
                 join_type        = 'LEFT',
                 filter_mode      = 'AUTO',
                 path_weight      = 10,
@@ -445,10 +447,11 @@ public class MetadataRefreshService {
             ps.setString(2, r.fromObject());
             ps.setString(3, r.toObject());
             ps.setString(4, r.relationType()); // Use relationType from record
-            ps.setInt(5, r.dbconnId()); // for relation_props
-            ps.setInt(6, r.dbconnId()); // dbconn_id column
-            ps.setString(7, r.tenant());
-            ps.setString(8, r.app());
+            ps.setString(5, r.joinAlias()); // Use relationType from record
+            ps.setInt(6, r.dbconnId()); // for relation_props
+            ps.setInt(7, r.dbconnId()); // dbconn_id column
+            ps.setString(8, r.tenant());
+            ps.setString(9, r.app());
         });
     }
 
@@ -574,6 +577,11 @@ public class MetadataRefreshService {
         String x = s.replace('_', ' ').trim();
         if (x.isEmpty()) return x;
         return Character.toUpperCase(x.charAt(0)) + x.substring(1);
+    }
+
+    private String joinAlias(List<FkRow> rows) {
+        return getFieldName(rows.get(0).fkCol.replace("_id", "")
+                .replace("_code", ""));
     }
     
 }

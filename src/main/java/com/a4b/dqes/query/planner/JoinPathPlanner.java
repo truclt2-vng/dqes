@@ -55,19 +55,29 @@ public class JoinPathPlanner {
         
         // 2. Find shortest paths using pre-computed cache
         Map<String, ObjectPathCache> pathCache = new HashMap<>();
+        // Fetch ALL cached paths that start from rootObject
+        List<ObjectPathCache> allPathCacheFromRoot = metadataRepo.findObjectPath(tenantCode, appCode, rootObject).orElse(List.of());
+
+        // Index “best” (shortest) path per target object.
+        // Pick the comparator that matches your schema (examples below).
+        Map<String, ObjectPathCache> bestByTarget = allPathCacheFromRoot.stream()
+            .filter(p -> rootObject.equals(p.getFromObjectCode()))
+            .collect(java.util.stream.Collectors.toMap(
+                ObjectPathCache::getToObjectCode,
+                p -> p
+            ));
+
         for (String targetObject : referencedObjects) {
-            Optional<ObjectPathCache> path = metadataRepo.findObjectPath(
-                tenantCode, appCode, rootObject, targetObject
-            );
+            ObjectPathCache best = bestByTarget.get(targetObject);
             
-            if (path.isEmpty()) {
+            if (best == null) {
                 throw new IllegalStateException(
-                    "No navigation path found from " + rootObject + " to " + targetObject + 
+                    "No navigation path found from " + rootObject + " to " + targetObject +
                     ". Run refresh_qry_object_paths() procedure."
                 );
             }
-            
-            pathCache.put(targetObject, path.get());
+
+            pathCache.put(targetObject, best);
         }
         
         // 3. Collect all relation codes from paths
@@ -75,15 +85,19 @@ public class JoinPathPlanner {
             .flatMap(p -> p.getPathRelationCodes().stream())
             .collect(Collectors.toSet());
         
+        List<String> requiredRelationCodeList = new ArrayList<>(requiredRelationCodes);
+        
         // 4. Load relation metadata with join keys
-        Map<String, RelationMeta> relationMetaMap = new HashMap<>();
-        for (String relCode : requiredRelationCodes) {
-            Optional<RelationMeta> rel = metadataRepo.findRelationMeta(tenantCode, appCode, relCode);
-            if (rel.isEmpty()) {
-                throw new IllegalStateException("Relation metadata not found: " + relCode);
-            }
-            relationMetaMap.put(relCode, rel.get());
-        }
+        // Fetch ALL cached paths that start from rootObject
+        List<RelationMeta> allRequiredRelation = metadataRepo.findRelationMeta(tenantCode, appCode, requiredRelationCodeList).orElse(List.of());
+        Map<String, RelationMeta> relationMetaMap = allRequiredRelation.stream()
+            .filter(r -> r.getCode() != null && !r.getCode().isBlank())
+            .collect(Collectors.toMap(
+                RelationMeta::getCode,     // key = code
+                r -> r,                    // value
+                (a, b) -> a                // nếu trùng code thì giữ bản đầu (hoặc đổi b)
+            ));
+
         
         // 5. Build JoinNodes from relations
         List<JoinNode> joinNodes = new ArrayList<>();
