@@ -11,8 +11,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 @Configuration
-@EnableJpaRepositories({ "com.a4b.dqes.repository", "com.a4b.core.ezmt.client.dataconstraint.repository" })
-@EntityScan(value = { "com.a4b.dqes.domain", "com.a4b.core.ezmt.client.dataconstraint.entity", "com.a4b.dqes.agg",
+@EnableJpaRepositories({ "com.a4b.dqes.repository", "com.a4b.dqes.query.repository", "com.a4b.core.ezmt.client.dataconstraint.repository" })
+@EntityScan(value = { "com.a4b.dqes.domain", "com.a4b.dqes.query.entity", "com.a4b.core.ezmt.client.dataconstraint.entity", "com.a4b.dqes.agg",
         "org.axonframework.modelling.saga.repository.jpa", "org.axonframework.eventhandling.saga.repository.jpa",
         "org.axonframework.eventsourcing.eventstore.jpa", "org.axonframework.eventhandling.tokenstore.jpa" })
 @EnableJpaAuditing(auditorAwareRef = "springSecurityAuditorAware")

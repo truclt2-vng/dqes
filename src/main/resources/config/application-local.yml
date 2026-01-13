@@ -90,6 +90,16 @@ spring:
         hibernate.hbm2ddl.auto: none
         hibernate.jdbc.batch_size: 500
         hibernate.default_schema: dqes
+  cache:
+    type: redis
+  data:
+    redis:
+      host: 172.21.251.141
+      port: 6379
+      database: 0
+      # timeout cho command (RedisTemplate/Lettuce)
+      timeout: 2s
+
 datasource:
   com:
     type: com.zaxxer.hikari.HikariDataSource

@@ -1,5 +1,5 @@
 -- =========================================================
--- fulltable_normalized.sql
+-- fulltable_normalized_v2.sql
 -- Dynamic Query Engine Schema (PostgreSQL) - FULL (rewritten)
 --
 -- Schema: dqes
@@ -32,9 +32,6 @@ CREATE TABLE dqes._sys_cols_template (
 
   agg_id uuid NOT NULL DEFAULT uuid_generate_v4(),
 
-  effective_start timestamptz NOT NULL DEFAULT now(),
-  effective_end   timestamptz NULL,
-  current_flg     bool NOT NULL DEFAULT true,
   record_order    int4 NOT NULL DEFAULT 1,
 
   record_status varchar(1) NOT NULL DEFAULT 'O'
@@ -104,7 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_cfgtb_dbconn_info_fts
   ON dqes.cfgtb_dbconn_info USING gin (fts_value);
 
 CREATE INDEX IF NOT EXISTS idx_cfgtb_dbconn_info_lookup
-  ON dqes.cfgtb_dbconn_info USING btree (tenant_code, app_code, conn_code, current_flg);
+  ON dqes.cfgtb_dbconn_info USING btree (tenant_code, app_code, conn_code);
 
 -- --------------------------
 -- 3) Operation Meta
@@ -177,7 +174,7 @@ CREATE TABLE dqes.qrytb_data_type_op (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_data_type_op_dtype
-  ON dqes.qrytb_data_type_op (tenant_code, app_code, data_type_code, current_flg);
+  ON dqes.qrytb_data_type_op (tenant_code, app_code, data_type_code);
 
 -- --------------------------
 -- 5) Expression Allowlist (safe sandbox)
@@ -217,7 +214,7 @@ CREATE TABLE dqes.qrytb_expr_allowlist (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_expr_allowlist_lookup
-  ON dqes.qrytb_expr_allowlist (tenant_code, app_code, expr_code, current_flg);
+  ON dqes.qrytb_expr_allowlist (tenant_code, app_code, expr_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_expr_allowlist_fts
   ON dqes.qrytb_expr_allowlist USING gin (fts_value);
@@ -250,7 +247,7 @@ CREATE TABLE dqes.qrytb_object_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_object_meta_lookup
-  ON dqes.qrytb_object_meta (tenant_code, app_code, object_code, current_flg);
+  ON dqes.qrytb_object_meta (tenant_code, app_code, object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_object_meta_fts
   ON dqes.qrytb_object_meta USING gin (fts_value);
@@ -285,8 +282,6 @@ CREATE TABLE dqes.qrytb_relation_info (
   path_weight int4 NOT NULL DEFAULT 10 CHECK (path_weight >= 0),
 
   -- optional dependency ordering
-  depends_on_code varchar(150) NULL,
-
   relation_props jsonb NULL,
   description varchar(2000) NULL,
 
@@ -304,10 +299,6 @@ CREATE TABLE dqes.qrytb_relation_info (
   CONSTRAINT qrytb_relation_to_object_fk
     FOREIGN KEY (tenant_code, app_code, to_object_code)
     REFERENCES dqes.qrytb_object_meta(tenant_code, app_code, object_code),
-
-  CONSTRAINT qrytb_relation_depends_fk
-    FOREIGN KEY (tenant_code, app_code, depends_on_code)
-    REFERENCES dqes.qrytb_relation_info(tenant_code, app_code, code),
   
   CONSTRAINT qrytb_relation_info_dbconn_fk
     FOREIGN KEY (dbconn_id)
@@ -318,10 +309,10 @@ CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_fts
   ON dqes.qrytb_relation_info USING gin (fts_value);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_from
-  ON dqes.qrytb_relation_info (tenant_code, app_code, from_object_code, current_flg);
+  ON dqes.qrytb_relation_info (tenant_code, app_code, from_object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_to
-  ON dqes.qrytb_relation_info (tenant_code, app_code, to_object_code, current_flg);
+  ON dqes.qrytb_relation_info (tenant_code, app_code, to_object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_pair
   ON dqes.qrytb_relation_info (tenant_code, app_code, from_object_code, to_object_code);
@@ -451,141 +442,13 @@ CREATE TABLE dqes.qrytb_field_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_field_meta_lookup
-  ON dqes.qrytb_field_meta (tenant_code, app_code, object_code, current_flg);
+  ON dqes.qrytb_field_meta (tenant_code, app_code, object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_field_meta_expr_code
   ON dqes.qrytb_field_meta (tenant_code, app_code, select_expr_code, filter_expr_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_field_meta_fts
   ON dqes.qrytb_field_meta USING gin (fts_value);
-
--- --------------------------
--- 9) Object Path Cache (materialize shortest paths)
--- --------------------------
-DROP TABLE IF EXISTS dqes.qrytb_object_path_cache CASCADE;
-
-CREATE TABLE dqes.qrytb_object_path_cache (
-  id serial4 NOT NULL,
-
-  from_object_code varchar(100) NOT NULL,
-  to_object_code   varchar(100) NOT NULL,
-
-  hop_count int4 NOT NULL CHECK (hop_count >= 0),
-  total_weight int4 NOT NULL DEFAULT 0 CHECK (total_weight >= 0),
-
-  -- ordered list of relation codes: ["REL_A","REL_B",...]
-  path_relation_codes jsonb NOT NULL,
-
-  description varchar(2000) NULL,
-
-  dbconn_id int4 NOT NULL,
-
-  LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
-
-  CONSTRAINT qrytb_object_path_cache_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_object_path_cache_uk UNIQUE (tenant_code, app_code, from_object_code, to_object_code),
-
-  CONSTRAINT qrytb_object_path_cache_from_fk
-    FOREIGN KEY (tenant_code, app_code, from_object_code)
-    REFERENCES dqes.qrytb_object_meta(tenant_code, app_code, object_code),
-
-  CONSTRAINT qrytb_object_path_cache_to_fk
-    FOREIGN KEY (tenant_code, app_code, to_object_code)
-    REFERENCES dqes.qrytb_object_meta(tenant_code, app_code, object_code),
-  
-  CONSTRAINT qrytb_object_path_cache_dbconn_fk
-    FOREIGN KEY (dbconn_id)
-    REFERENCES dqes.cfgtb_dbconn_info(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_qrytb_object_path_cache_lookup
-  ON dqes.qrytb_object_path_cache (tenant_code, app_code, from_object_code, to_object_code, current_flg);
-
--- --------------------------
--- 10) Refresh procedure for path cache (bounded expansion)
--- Just support 'MANY_TO_ONE'
--- ISSUE ERROR WITH 'ONE_TO_MANY'
--- --------------------------
-DROP PROCEDURE dqes.refresh_qry_object_paths(varchar, varchar, int4, int4);
-
-CREATE OR REPLACE PROCEDURE dqes.refresh_qry_object_paths(
-  p_tenant_code varchar,
-  p_app_code varchar,
-  p_dbconn_id int,
-  p_max_depth int DEFAULT 6
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  DELETE FROM dqes.qrytb_object_path_cache
-  WHERE tenant_code = p_tenant_code
-     AND app_code = p_app_code
-     AND dbconn_id = p_dbconn_id;
-
-  WITH RECURSIVE edges AS (
-    SELECT
-      r.tenant_code, r.app_code,
-      r.from_object_code, r.to_object_code,
-      r.code AS rel_code,
-      COALESCE(r.path_weight, 10) AS w
-    FROM dqes.qrytb_relation_info r
-    WHERE r.tenant_code = p_tenant_code
-      AND r.app_code = p_app_code
-      AND r.current_flg = true
-      AND r.record_status <> 'D'
-      AND r.is_navigable = true
-      AND r.relation_type = 'MANY_TO_ONE'
-  ),
-  paths AS (
-    SELECT
-      e.tenant_code, e.app_code,
-      e.from_object_code,
-      e.to_object_code,
-      1 AS hop_count,
-      e.w AS total_weight,
-      jsonb_build_array(e.rel_code) AS path_relation_codes,
-      ARRAY[e.from_object_code, e.to_object_code]::varchar[] AS visited
-    FROM edges e
-
-    UNION ALL
-
-    SELECT
-      p.tenant_code, p.app_code,
-      p.from_object_code,
-      e.to_object_code,
-      p.hop_count + 1,
-      p.total_weight + e.w,
-      p.path_relation_codes || jsonb_build_array(e.rel_code),
-      p.visited || e.to_object_code
-    FROM paths p
-    JOIN edges e
-      ON e.tenant_code = p.tenant_code
-     AND e.app_code = p.app_code
-     AND e.from_object_code = p.to_object_code
-    WHERE p.hop_count < p_max_depth
-      AND NOT (e.to_object_code = ANY(p.visited))
-  ),
-  ranked AS (
-    SELECT
-      tenant_code, app_code,
-      from_object_code, to_object_code,
-      hop_count, total_weight, path_relation_codes,
-      ROW_NUMBER() OVER (
-        PARTITION BY tenant_code, app_code, from_object_code, to_object_code
-        ORDER BY hop_count ASC, total_weight ASC
-      ) AS rn
-    FROM paths
-  )
-  INSERT INTO dqes.qrytb_object_path_cache (
-    from_object_code, to_object_code, hop_count, total_weight, path_relation_codes, dbconn_id,
-    tenant_code, app_code, current_flg, record_status, auth_status, create_date
-  )
-  SELECT
-    from_object_code, to_object_code, hop_count, total_weight, path_relation_codes, p_dbconn_id,
-    tenant_code, app_code, true, 'O', 'A', now()
-  FROM ranked
-  WHERE rn = 1;
-END $$;
 
 -- =========================================================
 -- 11) SEED DATA (basic defaults) - includes JSON & TSVECTOR
