@@ -16,6 +16,10 @@ import java.util.Optional;
  */
 @Repository
 public interface FieldMetaRepository extends JpaRepository<FieldMeta, Integer> {
+
+    @Cacheable(value = "fieldMetaByTenantCodeAndAppCode", key = "#tenantCode + '_' + #appCode")
+    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
+    List<FieldMeta> findByTenantCodeAndAppCode(String tenantCode, String appCode);
     
     @Cacheable(value = "fieldMetaByObject", key = "#tenantCode + '_' + #appCode + '_' + #objectCode")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))

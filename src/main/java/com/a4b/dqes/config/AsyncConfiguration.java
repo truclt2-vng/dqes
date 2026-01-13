@@ -20,6 +20,7 @@ import org.springframework.core.task.VirtualThreadTaskExecutor;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import lombok.RequiredArgsConstructor;
 import tech.jhipster.async.ExceptionHandlingAsyncTaskExecutor;
@@ -67,4 +68,15 @@ public class AsyncConfiguration implements AsyncConfigurer {
 	public ExecutorService eventPublisherExecutor() {
 		return Executors.newVirtualThreadPerTaskExecutor();
 	}
+
+	@Bean(name = "applicationTaskExecutor")
+    public Executor applicationTaskExecutor() {
+        ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+        ex.setCorePoolSize(2);
+        ex.setMaxPoolSize(4);
+        ex.setQueueCapacity(100);
+        ex.setThreadNamePrefix("warmup-");
+        ex.initialize();
+        return ex;
+    }
 }

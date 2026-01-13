@@ -30,6 +30,7 @@ public class RelationPath {
     public static class PathStep {
         private String fromObject;
         private String toObject;
+        private String toAlias;
         private String relationCode;
         private String joinType;
         private String filterMode;

@@ -122,6 +122,7 @@ public class RelationGraphService {
             path.addStep(RelationPath.PathStep.builder()
                 .fromObject(from)
                 .toObject(to)
+                .toAlias(relation.getJoinAlias())
                 .relationCode(relation.getCode())
                 .joinType(relation.getJoinType())
                 .filterMode(relation.getFilterMode())

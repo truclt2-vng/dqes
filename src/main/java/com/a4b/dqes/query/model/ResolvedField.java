@@ -20,6 +20,7 @@ public class ResolvedField {
     private String originalFieldPath; // e.g., "employee.employeeCode"
     private String objectCode;
     private String dbTable;
+    private String objectAlias;
     private String fieldCode;
     private String columnName;
     private String dataType;

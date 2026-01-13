@@ -1,5 +1,17 @@
 package com.a4b.dqes.query.builder;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.springframework.stereotype.Component;
+
+import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.OperationMeta;
 import com.a4b.dqes.domain.RelationInfo;
 import com.a4b.dqes.domain.RelationJoinKey;
@@ -13,9 +25,6 @@ import com.a4b.dqes.repository.jpa.RelationJoinKeyRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
-
-import java.util.*;
 
 /**
  * SQL Builder for dynamic queries with NamedParameterJdbcTemplate
@@ -46,7 +55,7 @@ public class SqlQueryBuilder {
         Map<String, Object> parameters = new HashMap<>();
         
         // Build SELECT clause
-        String selectClause = buildSelectClause(selectFields, countOnly);
+        String selectClause = buildSelectClause(selectFields, context.getRootObject(), countOnly);
         
         // Build FROM clause with root object
         String rootAlias = context.getObjectAliases().get(context.getRootObject());
@@ -89,19 +98,64 @@ public class SqlQueryBuilder {
     
     /**
      * Build SELECT clause with field expressions
+     * Groups fields by object and uses jsonb_build_object for non-root objects
      */
-    private String buildSelectClause(List<ResolvedField> selectFields, boolean countOnly) {
+    private String buildSelectClause(List<ResolvedField> selectFields, String rootObject, boolean countOnly) {
         if (countOnly) {
             return "SELECT COUNT(*) as total";
         }
         
-        StringBuilder select = new StringBuilder("SELECT ");
-        for (int i = 0; i < selectFields.size(); i++) {
-            if (i > 0) select.append(", ");
-            ResolvedField field = selectFields.get(i);
-            select.append(buildSelectExpression(field));
-            select.append(" AS ").append(field.getAliasHint());
+        // Group fields by object code
+        Map<String, List<ResolvedField>> fieldsByObject = new LinkedHashMap<>();
+        for (ResolvedField field : selectFields) {
+            fieldsByObject.computeIfAbsent(field.getObjectCode(), k -> new ArrayList<>()).add(field);
         }
+        
+        StringBuilder select = new StringBuilder("SELECT ");
+        boolean first = true;
+        
+        for (Map.Entry<String, List<ResolvedField>> entry : fieldsByObject.entrySet()) {
+            String objectCode = entry.getKey();
+            List<ResolvedField> fields = entry.getValue();
+            
+            // Check if this is the root object
+            boolean isRootObject = rootObject.equals(objectCode);
+            
+            if (isRootObject) {
+                // For root object, select fields directly without jsonb_build_object
+                for (int i = 0; i < fields.size(); i++) {
+                    if (!first) select.append(", ");
+                    first = false;
+                    
+                    ResolvedField field = fields.get(i);
+                    select.append(buildSelectExpression(field));
+                    select.append(" AS ").append(field.getAliasHint());
+                }
+            } else {
+                // For non-root objects, use jsonb_build_object to create nested JSON structure
+                if (!first) select.append(", ");
+                first = false;
+                
+                select.append("jsonb_build_object(");
+                String objectAlias = fields.size()>0 ? entry.getValue().get(0).getObjectAlias() : objectCode;
+                for (int i = 0; i < fields.size(); i++) {
+                    
+                    if (i > 0) select.append(", ");
+                    ResolvedField field = fields.get(i);
+                    
+                    // Add field name as key
+                    select.append("'").append(field.getAliasHint()).append("', ");
+                    
+                    // Add field value expression
+                    select.append(buildSelectExpression(field));
+                }
+                
+                
+                // select.append(") AS ").append(objectCode);
+                select.append(") AS ").append(objectAlias);
+            }
+        }
+        
         return select.toString();
     }
     
@@ -190,8 +244,9 @@ public class SqlQueryBuilder {
         }
         
         String fromAlias = context.getObjectAliases().get(step.getFromObject());
-        String toAlias = context.getOrGenerateAlias(step.getToObject(), 
-            step.getToObject().substring(0, Math.min(3, step.getToObject().length())));
+        String toAlias = context.getOrGenerateAlias(step.getToObject(),step.getToAlias());
+        // String toAlias = context.getOrGenerateAlias(step.getToObject(), 
+        //     step.getToObject().substring(0, Math.min(3, step.getToObject().length())));
         
         // Register table name for the to object
         String toTable = context.getObjectTable(step.getToObject());
@@ -289,16 +344,17 @@ public class SqlQueryBuilder {
         }
         
         // Get operation metadata for validation
-        OperationMeta operation = operationMetaRepository
-            .findByTenantCodeAndAppCodeAndCode(
-                context.getTenantCode(),
-                context.getAppCode(),
-                filter.getOperatorCode()
-            )
-            .orElseThrow(() -> new IllegalArgumentException("Unknown operator: " + filter.getOperatorCode()));
+        // OperationMeta operation = operationMetaRepository
+        //     .findByTenantCodeAndAppCodeAndCode(
+        //         context.getTenantCode(),
+        //         context.getAppCode(),
+        //         filter.getOperatorCode()
+        //     )
+        //     .orElseThrow(() -> new IllegalArgumentException("Unknown operator: " + filter.getOperatorCode()));
         
         String paramName = "param_" + parameters.size();
-        String fieldRef = alias + "." + fieldCode;
+        String fieldColumnName = getFieldColumnName(context, objectCode, fieldCode);
+        String fieldRef = alias + "." + fieldColumnName;
         
         // Build condition based on operator
         switch (filter.getOperatorCode()) {
@@ -365,6 +421,15 @@ public class SqlQueryBuilder {
             default:
                 throw new IllegalArgumentException("Unsupported operator: " + filter.getOperatorCode());
         }
+    }
+
+    private String getFieldColumnName(QueryContext context, String objectCode, String fieldCode) {
+        ObjectMeta objectMeta = context.getAllObjectMetaMap().get(objectCode);
+        return objectMeta.getFieldMetas().stream()
+            .filter(f -> f.getFieldCode().equals(fieldCode))
+            .findFirst()
+            .map(f -> f.getColumnName())
+            .orElse(fieldCode);
     }
     
     /**

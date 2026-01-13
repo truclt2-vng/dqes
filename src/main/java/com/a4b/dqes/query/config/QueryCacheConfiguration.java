@@ -55,11 +55,16 @@ public class QueryCacheConfiguration {
         Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
         
         // Metadata caches (longer TTL - metadata changes infrequently)
+        
+        cacheConfigurations.put("objectMetaByTenantCodeAppCode", 
+            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("objectMetaByCode", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("objectMetaByAliasHint", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("objectMetaByDbconn", 
+            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
+        cacheConfigurations.put("fieldMetaByTenantCodeAndAppCode", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("fieldMetaByObject", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));

@@ -32,11 +32,10 @@ public class FieldResolverService {
      * Batch resolve multiple fields for improved performance
      * Reduces N+1 query problem by pre-loading all required metadata
      */
-    public List<ResolvedField> batchResolveFields(List<String> fieldPaths, QueryContext context) {
+    public List<ResolvedField> batchResolveFields(List<String> fieldPaths, QueryContext context,Map<String, ObjectMeta> allObjectMetaMap) {
         if (fieldPaths == null || fieldPaths.isEmpty()) {
             return Collections.emptyList();
         }
-        
         // Extract unique object codes from field paths
         Set<String> requiredObjects = fieldPaths.stream()
             .map(path -> path.split("\\.")[0])
@@ -45,28 +44,14 @@ public class FieldResolverService {
         // Pre-load all object metadata
         Map<String, ObjectMeta> objectMetaMap = new HashMap<>();
         for (String objectCode : requiredObjects) {
-            ObjectMeta objectMeta = objectMetaRepository
-                .findByTenantCodeAndAppCodeAndObjectCode(
-                    context.getTenantCode(),
-                    context.getAppCode(),
-                    objectCode
-                )
-                .orElseThrow(() -> new IllegalArgumentException("Object not found: " + objectCode));
+            ObjectMeta objectMeta = allObjectMetaMap.get(objectCode);
             objectMetaMap.put(objectCode, objectMeta);
-            context.getObjectTables().put(objectCode, objectMeta.getDbTable());
         }
         
         // Pre-load all field metadata for each object
         Map<String, List<FieldMeta>> fieldMetaByObject = new HashMap<>();
         for (String objectCode : requiredObjects) {
-            List<FieldMeta> fields = fieldMetaRepository
-                .findByTenantCodeAndAppCodeAndObjectCode(
-                    context.getTenantCode(),
-                    context.getAppCode(),
-                    objectCode
-                );
-            Map<String, FieldMeta> fieldMap = fields.stream()
-                .collect(Collectors.toMap(FieldMeta::getFieldCode, f -> f));
+            List<FieldMeta> fields = allObjectMetaMap.get(objectCode).getFieldMetas();
             fieldMetaByObject.put(objectCode, fields);
         }
         
@@ -147,6 +132,7 @@ public class FieldResolverService {
             .originalFieldPath(fieldPath)
             .objectCode(objectCode)
             .dbTable(objectMeta.getDbTable())
+            .objectAlias(objectMeta.getAliasHint())
             .fieldCode(fieldCode)
             .columnName(fieldMeta.getColumnName())
             .dataType(fieldMeta.getDataType())
@@ -174,27 +160,15 @@ public class FieldResolverService {
         String fieldCode = parts[1];
         
         // Get object metadata
-        ObjectMeta objectMeta = objectMetaRepository
-            .findByTenantCodeAndAppCodeAndObjectCode(
-                context.getTenantCode(),
-                context.getAppCode(),
-                objectCode
-            )
-            .orElseThrow(() -> new IllegalArgumentException(
-                "Object not found: " + objectCode
-            ));
+        ObjectMeta objectMeta = context.getAllObjectMetaMap().get(objectCode);
         
         // Get field metadata
-        FieldMeta fieldMeta = fieldMetaRepository
-            .findByTenantCodeAndAppCodeAndObjectCodeAndFieldCode(
-                context.getTenantCode(),
-                context.getAppCode(),
-                objectCode,
-                fieldCode
-            )
-            .orElseThrow(() -> new IllegalArgumentException(
+        FieldMeta fieldMeta = getFieldMeta(context, objectCode, fieldCode);
+        if (fieldMeta == null) {
+            throw new IllegalArgumentException(
                 "Field not found: " + objectCode + "." + fieldCode
-            ));
+            );
+        }
         
         // Resolve relation path if not the root object
         RelationPath relationPath = null;
@@ -229,6 +203,7 @@ public class FieldResolverService {
             .originalFieldPath(fieldPath)
             .objectCode(objectCode)
             .dbTable(objectMeta.getDbTable())
+            .objectAlias(objectMeta.getAliasHint())
             .fieldCode(fieldCode)
             .columnName(fieldMeta.getColumnName())
             .dataType(fieldMeta.getDataType())
@@ -239,5 +214,13 @@ public class FieldResolverService {
             .selectExprCode(fieldMeta.getSelectExprCode())
             .filterExprCode(fieldMeta.getFilterExprCode())
             .build();
+    }
+
+    private FieldMeta getFieldMeta(QueryContext context, String objectCode, String fieldCode) {
+        ObjectMeta objectMeta = context.getAllObjectMetaMap().get(objectCode);
+        return objectMeta.getFieldMetas().stream()
+            .filter(f -> f.getFieldCode().equals(fieldCode))
+            .findFirst()
+            .orElse(null);
     }
 }

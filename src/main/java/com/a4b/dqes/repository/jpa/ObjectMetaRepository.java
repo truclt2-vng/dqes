@@ -18,7 +18,7 @@ import java.util.Optional;
  */
 @Repository
 public interface ObjectMetaRepository extends JpaRepository<ObjectMeta, Integer> {
-    
+
     @Cacheable(value = "objectMetaByCode", key = "#tenantCode + '_' + #appCode + '_' + #objectCode")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
     Optional<ObjectMeta> findByTenantCodeAndAppCodeAndObjectCode(
@@ -41,6 +41,7 @@ public interface ObjectMetaRepository extends JpaRepository<ObjectMeta, Integer>
         String tenantCode, String appCode, Integer dbconnId
     );
     
+    @Cacheable(value = "objectMetaByTenantCodeAppCode", key = "#tenantCode + '_' + #appCode")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
     List<ObjectMeta> findByTenantCodeAndAppCode(
         String tenantCode, String appCode

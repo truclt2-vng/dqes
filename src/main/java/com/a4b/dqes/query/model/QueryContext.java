@@ -4,6 +4,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.a4b.dqes.domain.ObjectMeta;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,6 +26,9 @@ public class QueryContext {
     private Integer dbconnId;
     private String rootObject;
     private String rootTable; // Physical table name for root object
+
+    @Builder.Default
+    private Map<String, ObjectMeta> allObjectMetaMap = new ConcurrentHashMap<>();
     
     @Builder.Default
     private Map<String, String> objectAliases = new ConcurrentHashMap<>(); // objectCode -> alias

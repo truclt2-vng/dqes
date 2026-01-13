@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * Entity for qrytb_object_meta table
@@ -47,4 +48,7 @@ public class ObjectMeta implements Serializable {
     
     @Column(name = "description", length = 2000)
     private String description;
+
+    @Transient
+    private List<FieldMeta> fieldMetas;
 }
