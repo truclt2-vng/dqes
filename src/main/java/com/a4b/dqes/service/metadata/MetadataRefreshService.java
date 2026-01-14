@@ -19,7 +19,6 @@ import javax.sql.DataSource;
 
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -160,11 +159,12 @@ public class MetadataRefreshService {
                     tables.add(name);
 
                     String objectCode = toObjectCode(schema, name);
+                    String objectName = humanizeObject(name);
                     String dbTable = schema + "." + name;
 
                     objects.add(new ObjectRow(
                             conn.id(), tenantCode, appCode,
-                            objectCode, name, dbTable, aliasHint(name),
+                            objectCode, objectName, dbTable, aliasHint(name),
                             "Auto-generated from " + type,
                             objectCode + " " + name + " " + dbTable
                     ));
@@ -357,7 +357,7 @@ public class MetadataRefreshService {
                fts_string_value, tenant_code, app_code)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (tenant_code, app_code, object_code)
+            ON CONFLICT ( object_code)
             DO UPDATE SET
                 object_name       = EXCLUDED.object_name,
                 db_table          = EXCLUDED.db_table,
@@ -389,7 +389,7 @@ public class MetadataRefreshService {
                description, fts_string_value, tenant_code, app_code)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, true, true, true, ?, ?, ?, ?)
-            ON CONFLICT (tenant_code, app_code, object_code, field_code)
+            ON CONFLICT ( object_code, field_code)
             DO UPDATE SET
                 field_label      = EXCLUDED.field_label,
                 alias_hint       = EXCLUDED.alias_hint,
@@ -430,7 +430,7 @@ public class MetadataRefreshService {
             VALUES
               (?, ?, ?, ?, ?,'LEFT', 'AUTO',
                10, jsonb_build_object('dbconn_id', ?), ?, ?, ?)
-            ON CONFLICT (tenant_code, app_code, code)
+            ON CONFLICT (code)
             DO UPDATE SET
                 from_object_code = EXCLUDED.from_object_code,
                 to_object_code   = EXCLUDED.to_object_code,
@@ -571,6 +571,14 @@ public class MetadataRefreshService {
     private static String getFieldName(String columnName) {
 		return CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.LOWER_CAMEL, columnName);
 	}
+
+    private static String humanizeObject(String s) {
+        if (s == null) return "";
+        s = getFriendlyname(s);
+        String x = s.replace('_', ' ').trim();
+        if (x.isEmpty()) return x;
+        return Character.toUpperCase(x.charAt(0)) + x.substring(1);
+    }
 
     private static String humanize(String s) {
         if (s == null) return "";

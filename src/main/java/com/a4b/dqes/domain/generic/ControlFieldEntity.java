@@ -49,12 +49,6 @@ public abstract class ControlFieldEntity implements Serializable{
     @Column(name = "maker_date")
     private OffsetDateTime makerDate;
 
-    @Column(name = "checker_id")
-    private String checkerId;
-
-    @Column(name = "checker_date")
-    private OffsetDateTime checkerDate;
-
     @Column(name = "update_id")
     private String updateId;
 
@@ -67,13 +61,4 @@ public abstract class ControlFieldEntity implements Serializable{
 
     @Column(name = "create_date")
     private OffsetDateTime createDate = OffsetDateTime.now();
-
-    @Column(name = "effective_start", nullable = false)
-    private OffsetDateTime effectiveStart = OffsetDateTime.now();
-
-    @Column(name = "effective_end")
-    private OffsetDateTime effectiveEnd;
-
-    @Column(name = "current_flg")
-    private Boolean currentFlg = true;
 }

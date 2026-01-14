@@ -117,7 +117,7 @@ public class DqesMetadataRefreshService {
                        username, password_enc, password_alg, ssl_enabled, ssl_mode, jdbc_params::text
                 FROM dqes.cfgtb_dbconn_info
                 WHERE tenant_code=:tenant AND app_code=:app AND conn_code=:code
-                  AND current_flg=true AND record_status <> 'D'
+                  AND record_status <> 'D'
                 """;
 
         Map<String, Object> p = Map.of("tenant", tenantCode, "app", appCode, "code", connCode);

@@ -35,10 +35,6 @@ public class ControllingFieldDto implements Serializable{
 	@Hidden
 	private String updateId;
 	@Hidden
-	private String checkerId;
-	@Hidden
-	private OffsetDateTime checkerDate;
-	@Hidden
 	private String tenantCode;
 	@Hidden
 	private String appCode;
@@ -52,10 +48,4 @@ public class ControllingFieldDto implements Serializable{
 	private String authStatus;
 	@Hidden
 	private String recordStatus;
-	@Hidden
-	private OffsetDateTime effectiveStart;
-	@Hidden
-	private OffsetDateTime effectiveEnd;
-	@Hidden
-	private Boolean currentFlg;   
 }

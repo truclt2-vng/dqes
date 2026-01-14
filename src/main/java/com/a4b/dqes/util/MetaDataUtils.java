@@ -25,112 +25,81 @@ public final class MetaDataUtils {
 	}
 
 	public static void forCreate(Object object, Boolean needApproval){
-		try {
-			String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
-			BeanUtils.setProperty(object, "makerDate", OffsetDateTime.now());
-			BeanUtils.setProperty(object, "makerId", username);
-			BeanUtils.setProperty(object, "updateDate", OffsetDateTime.now());
-			BeanUtils.setProperty(object, "updateId", username);
-			BeanUtils.setProperty(object, "recordStatus", RecordStatus.O.name());
-			BeanUtils.setProperty(object, "authStatus", AuthStatus.A.name());
-			if(needApproval) {
-				BeanUtils.setProperty(object, "authStatus", AuthStatus.U.name());
-				BeanUtils.setProperty(object, "currentFlg", false);
-			}else {
-				BeanUtils.setProperty(object, "authStatus", AuthStatus.A.name());
-				BeanUtils.setProperty(object, "currentFlg", true);
-			}
-			
-			BeanUtils.setProperty(object, "createDate", OffsetDateTime.now());
-			BeanUtils.setProperty(object, "aggId", UUID.randomUUID());
-			BeanUtils.setProperty(object, "appCode", SecurityUtils.getCurrentAppCode());
-			BeanUtils.setProperty(object, "tenantCode", SecurityUtils.getCurrentUserTenantCode());
-			BeanUtils.setProperty(object, "empCode", SecurityUtils.getCurrentUserEmpCode());
-		} catch (IllegalAccessException e) {
-		} catch (InvocationTargetException e) {
+		String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
+		selfSetValue(object, "makerDate", OffsetDateTime.now());
+		selfSetValue(object, "makerId", username);
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", username);
+		selfSetValue(object, "recordStatus", RecordStatus.O.name());
+		if(needApproval) {
+			selfSetValue(object, "authStatus", AuthStatus.U.name());
+		}else {
+			selfSetValue(object, "authStatus", AuthStatus.A.name());
 		}
+		selfSetValue(object, "createDate", OffsetDateTime.now());
+		selfSetValue(object, "aggId", UUID.randomUUID());
+		selfSetValue(object, "appCode", SecurityUtils.getCurrentAppCode());
+		selfSetValue(object, "tenantCode", SecurityUtils.getCurrentUserTenantCode());
+		selfSetValue(object, "empCode", SecurityUtils.getCurrentUserEmpCode());
 	}
+	
 
 	public static void forCreateWithUser(Object object, String username) {
 
-		try {
-			BeanUtils.setProperty(object, "makerDate", new Date());
-			BeanUtils.setProperty(object, "makerId", username);
-			BeanUtils.setProperty(object, "updateDate", new Date());
-			BeanUtils.setProperty(object, "updateId", username);
-			BeanUtils.setProperty(object, "recordStatus", RecordStatus.O.name());
-			BeanUtils.setProperty(object, "authStat", AuthStatus.A.name());
-		} catch (IllegalAccessException e) {
-		} catch (InvocationTargetException e) {
-		}
-
+		selfSetValue(object, "makerDate", OffsetDateTime.now());
+		selfSetValue(object, "makerId", username);
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", username);
+		selfSetValue(object, "recordStatus", RecordStatus.O.name());
+		selfSetValue(object, "authStat", AuthStatus.A.name());
+		selfSetValue(object, "createDate", OffsetDateTime.now());
 	}
 
 	public static void forCreateWithoutAuthStat(Object object) {
-
-		try {
-			String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
-			BeanUtils.setProperty(object, "makerDate", new Date());
-			BeanUtils.setProperty(object, "makerId", username);
-			BeanUtils.setProperty(object, "updateDate", new Date());
-			BeanUtils.setProperty(object, "updateId", username);
-			BeanUtils.setProperty(object, "recordStatus", RecordStatus.O.name());
-		} catch (IllegalAccessException e) {
-		} catch (InvocationTargetException e) {
-		}
-
+		String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
+		selfSetValue(object, "makerDate", OffsetDateTime.now());
+		selfSetValue(object, "makerId", username);
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", username);
+		selfSetValue(object, "recordStatus", RecordStatus.O.name());
 	}
 
 	public static void forUpdate(Object object) {
-		try {
-			String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
-			BeanUtils.setProperty(object, "updateDate", new Date());
-			BeanUtils.setProperty(object, "updateId", username);
-		} catch (IllegalAccessException e) {
-		} catch (InvocationTargetException e) {
-		}
+		String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", username);
 	}
 
 	public static void forUpdateWithUser(Object object, String username) {
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", username);
+	}
+
+    public static void forCreateWithOwner(Object object) {
+		selfSetValue(object, "makerDate", OffsetDateTime.now());
+		selfSetValue(object, "makerId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
+		selfSetValue(object, "recordStatus", RecordStatus.O.name());
+		selfSetValue(object, "authStat", AuthStatus.A.name());
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
+		selfSetValue(object, "owner", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
+    }
+
+    public static void forCreateWithParamOwner(Object object, String owner) {
+		selfSetValue(object, "makerDate", OffsetDateTime.now());
+		selfSetValue(object, "makerId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
+		selfSetValue(object, "recordStatus", RecordStatus.O.name());
+		selfSetValue(object, "authStat", AuthStatus.A.name());
+		selfSetValue(object, "updateDate", OffsetDateTime.now());
+		selfSetValue(object, "updateId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
+		selfSetValue(object, "owner", owner);
+    }
+
+	public static void selfSetValue(Object object, String fieldName, Object value) {
 		try {
-			BeanUtils.setProperty(object, "updateDate", new Date());
-			BeanUtils.setProperty(object, "updateId", username);
+			BeanUtils.setProperty(object, fieldName, value);
 		} catch (IllegalAccessException e) {
 		} catch (InvocationTargetException e) {
 		}
 	}
-
-    public static void forCreateWithOwner(Object object) {
-
-        try {
-            BeanUtils.setProperty(object, "makerDate", new Date());
-            BeanUtils.setProperty(object, "makerId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
-            BeanUtils.setProperty(object, "recordStatus", RecordStatus.O.name());
-            BeanUtils.setProperty(object, "authStat", AuthStatus.A.name());
-            BeanUtils.setProperty(object, "updateDate", new Date());
-            BeanUtils.setProperty(object, "updateId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
-            BeanUtils.setProperty(object, "owner", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
-
-        } catch (IllegalAccessException e) {
-        } catch (InvocationTargetException e) {
-        }
-
-    }
-
-    public static void forCreateWithParamOwner(Object object, String owner) {
-
-        try {
-            BeanUtils.setProperty(object, "makerDate", new Date());
-            BeanUtils.setProperty(object, "makerId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
-            BeanUtils.setProperty(object, "recordStatus", RecordStatus.O.name());
-            BeanUtils.setProperty(object, "authStat", AuthStatus.A.name());
-            BeanUtils.setProperty(object, "updateDate", new Date());
-            BeanUtils.setProperty(object, "updateId", SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system"));
-            BeanUtils.setProperty(object, "owner", owner);
-
-        } catch (IllegalAccessException e) {
-        } catch (InvocationTargetException e) {
-        }
-
-    }
 }

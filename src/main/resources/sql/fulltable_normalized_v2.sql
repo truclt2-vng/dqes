@@ -42,8 +42,6 @@ CREATE TABLE dqes._sys_cols_template (
 
   maker_id     varchar(50) NULL,
   maker_date   timestamptz NULL,
-  checker_id   varchar(50) NULL,
-  checker_date timestamptz NULL,
   update_id    varchar(50) NULL,
   update_date  timestamptz NULL,
 
@@ -101,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_cfgtb_dbconn_info_fts
   ON dqes.cfgtb_dbconn_info USING gin (fts_value);
 
 CREATE INDEX IF NOT EXISTS idx_cfgtb_dbconn_info_lookup
-  ON dqes.cfgtb_dbconn_info USING btree (tenant_code, app_code, conn_code);
+  ON dqes.cfgtb_dbconn_info USING btree (conn_code);
 
 -- --------------------------
 -- 3) Operation Meta
@@ -122,7 +120,7 @@ CREATE TABLE dqes.qrytb_operation_meta (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_operation_meta_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_operation_meta_uk UNIQUE (tenant_code, app_code, code)
+  CONSTRAINT qrytb_operation_meta_uk UNIQUE (code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_operation_meta_fts
@@ -144,7 +142,7 @@ CREATE TABLE dqes.qrytb_data_type (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_data_type_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_data_type_uk UNIQUE (tenant_code, app_code, code)
+  CONSTRAINT qrytb_data_type_uk UNIQUE (code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_data_type_fts
@@ -162,19 +160,17 @@ CREATE TABLE dqes.qrytb_data_type_op (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_data_type_op_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_data_type_op_uk UNIQUE (tenant_code, app_code, data_type_code, op_code),
+  CONSTRAINT qrytb_data_type_op_uk UNIQUE (data_type_code, op_code),
 
   CONSTRAINT qrytb_data_type_op_dtype_fk
-    FOREIGN KEY (tenant_code, app_code, data_type_code)
-    REFERENCES dqes.qrytb_data_type(tenant_code, app_code, code),
+    FOREIGN KEY ( data_type_code)
+    REFERENCES dqes.qrytb_data_type(code),
 
   CONSTRAINT qrytb_data_type_op_op_fk
-    FOREIGN KEY (tenant_code, app_code, op_code)
-    REFERENCES dqes.qrytb_operation_meta(tenant_code, app_code, code)
+    FOREIGN KEY (op_code)
+    REFERENCES dqes.qrytb_operation_meta(code)
 );
 
-CREATE INDEX IF NOT EXISTS idx_qrytb_data_type_op_dtype
-  ON dqes.qrytb_data_type_op (tenant_code, app_code, data_type_code);
 
 -- --------------------------
 -- 5) Expression Allowlist (safe sandbox)
@@ -206,11 +202,11 @@ CREATE TABLE dqes.qrytb_expr_allowlist (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_expr_allowlist_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_expr_allowlist_uk UNIQUE (tenant_code, app_code, expr_code),
+  CONSTRAINT qrytb_expr_allowlist_uk UNIQUE (expr_code),
 
   CONSTRAINT qrytb_expr_allowlist_return_dtype_fk
-    FOREIGN KEY (tenant_code, app_code, return_data_type)
-    REFERENCES dqes.qrytb_data_type(tenant_code, app_code, code)
+    FOREIGN KEY (return_data_type)
+    REFERENCES dqes.qrytb_data_type(code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_expr_allowlist_lookup
@@ -239,7 +235,7 @@ CREATE TABLE dqes.qrytb_object_meta (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_object_meta_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_object_meta_uk UNIQUE (tenant_code, app_code, object_code),
+  CONSTRAINT qrytb_object_meta_uk UNIQUE (object_code),
 
   CONSTRAINT qrytb_object_meta_dbconn_fk
     FOREIGN KEY (dbconn_id)
@@ -247,7 +243,7 @@ CREATE TABLE dqes.qrytb_object_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_object_meta_lookup
-  ON dqes.qrytb_object_meta (tenant_code, app_code, object_code);
+  ON dqes.qrytb_object_meta (object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_object_meta_fts
   ON dqes.qrytb_object_meta USING gin (fts_value);
@@ -290,15 +286,15 @@ CREATE TABLE dqes.qrytb_relation_info (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_relation_info_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_relation_info_uk UNIQUE (tenant_code, app_code, code),
+  CONSTRAINT qrytb_relation_info_uk UNIQUE (code),
 
   CONSTRAINT qrytb_relation_from_object_fk
-    FOREIGN KEY (tenant_code, app_code, from_object_code)
-    REFERENCES dqes.qrytb_object_meta(tenant_code, app_code, object_code),
+    FOREIGN KEY (from_object_code)
+    REFERENCES dqes.qrytb_object_meta(object_code),
 
   CONSTRAINT qrytb_relation_to_object_fk
-    FOREIGN KEY (tenant_code, app_code, to_object_code)
-    REFERENCES dqes.qrytb_object_meta(tenant_code, app_code, object_code),
+    FOREIGN KEY (to_object_code)
+    REFERENCES dqes.qrytb_object_meta(object_code),
   
   CONSTRAINT qrytb_relation_info_dbconn_fk
     FOREIGN KEY (dbconn_id)
@@ -309,13 +305,13 @@ CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_fts
   ON dqes.qrytb_relation_info USING gin (fts_value);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_from
-  ON dqes.qrytb_relation_info (tenant_code, app_code, from_object_code);
+  ON dqes.qrytb_relation_info (from_object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_to
-  ON dqes.qrytb_relation_info (tenant_code, app_code, to_object_code);
+  ON dqes.qrytb_relation_info (to_object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_info_pair
-  ON dqes.qrytb_relation_info (tenant_code, app_code, from_object_code, to_object_code);
+  ON dqes.qrytb_relation_info (from_object_code, to_object_code);
 
 -- Join keys (predicates) for each relation
 DROP TABLE IF EXISTS dqes.qrytb_relation_join_key CASCADE;
@@ -371,7 +367,7 @@ CREATE TABLE dqes.qrytb_field_meta (
   alias_hint  varchar(30)  NOT NULL,
 
   mapping_type varchar(10) NOT NULL DEFAULT 'COLUMN'
-    CHECK (mapping_type IN ('COLUMN','EXPR')),
+    CHECK (mapping_type IN ('COLUMN','EXPR', 'REFERENCE')),
 
   -- COLUMN mapping (physical)
   column_name  varchar(255) NULL,   -- column name only
@@ -405,23 +401,23 @@ CREATE TABLE dqes.qrytb_field_meta (
   LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
 
   CONSTRAINT qrytb_field_meta_pk PRIMARY KEY (id),
-  CONSTRAINT qrytb_field_meta_uk UNIQUE (tenant_code, app_code, object_code, field_code),
+  CONSTRAINT qrytb_field_meta_uk UNIQUE (object_code, field_code),
 
   CONSTRAINT qrytb_field_meta_object_fk
-    FOREIGN KEY (tenant_code, app_code, object_code)
-    REFERENCES dqes.qrytb_object_meta(tenant_code, app_code, object_code),
+    FOREIGN KEY (object_code)
+    REFERENCES dqes.qrytb_object_meta(object_code),
 
   CONSTRAINT qrytb_field_meta_dtype_fk
-    FOREIGN KEY (tenant_code, app_code, data_type)
-    REFERENCES dqes.qrytb_data_type(tenant_code, app_code, code),
+    FOREIGN KEY (data_type)
+    REFERENCES dqes.qrytb_data_type(code),
 
   CONSTRAINT qrytb_field_meta_select_expr_code_fk
-    FOREIGN KEY (tenant_code, app_code, select_expr_code)
-    REFERENCES dqes.qrytb_expr_allowlist(tenant_code, app_code, expr_code),
+    FOREIGN KEY (select_expr_code)
+    REFERENCES dqes.qrytb_expr_allowlist(expr_code),
 
   CONSTRAINT qrytb_field_meta_filter_expr_code_fk
-    FOREIGN KEY (tenant_code, app_code, filter_expr_code)
-    REFERENCES dqes.qrytb_expr_allowlist(tenant_code, app_code, expr_code),
+    FOREIGN KEY (filter_expr_code)
+    REFERENCES dqes.qrytb_expr_allowlist(expr_code),
 
   -- Mapping consistency:
   --  - COLUMN: must have column_name, must not have expr_code nor select_expr
@@ -442,10 +438,10 @@ CREATE TABLE dqes.qrytb_field_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_field_meta_lookup
-  ON dqes.qrytb_field_meta (tenant_code, app_code, object_code);
+  ON dqes.qrytb_field_meta (object_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_field_meta_expr_code
-  ON dqes.qrytb_field_meta (tenant_code, app_code, select_expr_code, filter_expr_code);
+  ON dqes.qrytb_field_meta (select_expr_code, filter_expr_code);
 
 CREATE INDEX IF NOT EXISTS idx_qrytb_field_meta_fts
   ON dqes.qrytb_field_meta USING gin (fts_value);
@@ -466,7 +462,7 @@ VALUES
   ('UUID',      'java.util.UUID',           'uuid',        'UUID',                'SUPPER','SUPPER'),
   ('JSON',      'com.fasterxml.jackson.databind.JsonNode', 'jsonb',   'JSON/JSONB document', 'SUPPER','SUPPER'),
   ('TSVECTOR',  'java.lang.String',         'tsvector',    'PostgreSQL tsvector', 'SUPPER','SUPPER')
-ON CONFLICT (tenant_code, app_code, code) DO NOTHING;
+ON CONFLICT (code) DO NOTHING;
 
 -- ---- Operations ----
 INSERT INTO dqes.qrytb_operation_meta
@@ -484,63 +480,65 @@ VALUES
   ('LIKE',        'LIKE',       'Like',                   1, 'SCALAR', 'field LIKE pattern',        'SUPPER','SUPPER'),
   ('ILIKE',       'ILIKE',      'Case-insensitive like',  1, 'SCALAR', 'field ILIKE pattern',       'SUPPER','SUPPER'),
   ('IS_NULL',     'IS NULL',    'Is null',                0, 'NONE',   'field IS NULL',             'SUPPER','SUPPER'),
-  ('IS_NOT_NULL', 'IS NOT NULL','Is not null',            0, 'NONE',   'field IS NOT NULL',         'SUPPER','SUPPER')
-ON CONFLICT (tenant_code, app_code, code) DO NOTHING;
+  ('IS_NOT_NULL', 'IS NOT NULL','Is not null',            0, 'NONE',   'field IS NOT NULL',         'SUPPER','SUPPER'),
+  ('FTS',         '@@',         'Full-Text Search using to_tsquery',       1, 'SCALAR', 'field @@ to_tsquery(value)', 'SUPPER','SUPPER'),
+  ('PHFTS',       '@@',         'Full-Text Search using phraseto_tsquery', 1, 'SCALAR', 'field @@ phraseto_tsquery(value)', 'SUPPER','SUPPER')
+ON CONFLICT (code) DO NOTHING;
 
 -- ---- Type-Op mappings (common defaults) ----
 -- STRING
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'STRING', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('IN'),('NOT_IN'),('LIKE'),('ILIKE'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- NUMBER
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'NUMBER', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('GT'),('GE'),('LT'),('LE'),('IN'),('NOT_IN'),('BETWEEN'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- INT
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'INT', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('GT'),('GE'),('LT'),('LE'),('IN'),('NOT_IN'),('BETWEEN'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- DATE
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'DATE', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('GT'),('GE'),('LT'),('LE'),('BETWEEN'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- TIMESTAMP
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'TIMESTAMP', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('GT'),('GE'),('LT'),('LE'),('BETWEEN'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- BOOLEAN
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'BOOLEAN', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- UUID
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'UUID', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('IN'),('NOT_IN'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- JSON (practical subset; you can extend with JSON_CONTAINS/JSON_PATH ops later)
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'JSON', x.op, 'SUPPER','SUPPER'
 FROM (VALUES ('EQ'),('NE'),('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- TSVECTOR (usually needs @@ + to_tsquery / plainto_tsquery; keep minimal by default)
 INSERT INTO dqes.qrytb_data_type_op (data_type_code, op_code, tenant_code, app_code)
 SELECT 'TSVECTOR', x.op, 'SUPPER','SUPPER'
-FROM (VALUES ('IS_NULL'),('IS_NOT_NULL')) x(op)
-ON CONFLICT (tenant_code, app_code, data_type_code, op_code) DO NOTHING;
+FROM (VALUES ('IS_NULL'),('IS_NOT_NULL'),('FTS'),('PHFTS')) x(op)
+ON CONFLICT (data_type_code, op_code) DO NOTHING;
 
 -- ---- Expression allowlist defaults ----
 INSERT INTO dqes.qrytb_expr_allowlist
@@ -586,7 +584,7 @@ VALUES
    2, 2, '[{"pos":0,"kind":"FIELD"},{"pos":1,"kind":"CONST"}]'::jsonb, 'STRING',
    'jsonb #>> path (path should be const like ''{a,b}'')',
    'SUPPER','SUPPER')
-ON CONFLICT (tenant_code, app_code, expr_code) DO NOTHING;
+ON CONFLICT (expr_code) DO NOTHING;
 
 -- =========================================================
 -- 12) Optional: refresh path cache example call
