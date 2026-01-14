@@ -85,7 +85,7 @@ public class DynamicQueryExecutionService {
             // Build object map + attach fieldMetas
             final Map<String, ObjectMeta> allObjectMetaMap = objectMetas.stream()
                 .peek(om -> om.setFieldMetas(fieldMetaByObject.getOrDefault(om.getObjectCode(), List.of())))
-                .collect(Collectors.toMap(ObjectMeta::getObjectCode, om -> om, (a, b) -> a, HashMap::new));
+                .collect(Collectors.toMap(ObjectMeta::getAliasHint, om -> om, (a, b) -> a, HashMap::new));
 
             final ObjectMeta rootObject = allObjectMetaMap.get(request.getRootObject());
             if (rootObject == null) {

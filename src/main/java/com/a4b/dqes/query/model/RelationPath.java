@@ -31,6 +31,13 @@ public class RelationPath {
         private String fromObject;
         private String toObject;
         private String toAlias;
+        
+        /**
+         * The join_alias from qrytb_relation_info
+         * Used to differentiate multiple joins to the same table
+         */
+        private String joinAlias;
+        
         private String relationCode;
         private String joinType;
         private String filterMode;

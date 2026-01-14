@@ -54,4 +54,14 @@ public interface RelationInfoRepository extends JpaRepository<RelationInfo, Inte
         @Param("appCode") String appCode,
         @Param("dbconnId") Integer dbconnId
     );
+    
+    /**
+     * Find relation by join_alias
+     * Used for resolving user-provided aliases to specific relations
+     */
+    @Cacheable(value = "relationInfoByJoinAlias", key = "#tenantCode + '_' + #appCode + '_' + #joinAlias")
+    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
+    Optional<RelationInfo> findByTenantCodeAndAppCodeAndJoinAlias(
+        String tenantCode, String appCode, String joinAlias
+    );
 }

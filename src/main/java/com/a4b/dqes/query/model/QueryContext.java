@@ -42,6 +42,13 @@ public class QueryContext {
     @Builder.Default
     private Map<String, RelationPath> relationPaths = new ConcurrentHashMap<>(); // objectCode -> path from root
     
+    // NEW: Alias resolution tracking
+    @Builder.Default
+    private Map<String, String> userAliasToObjectCode = new ConcurrentHashMap<>(); // user alias -> object code
+    
+    @Builder.Default
+    private Map<String, String> joinInstanceAliases = new ConcurrentHashMap<>(); // objectCode:joinAlias -> runtime alias
+    
     @Builder.Default
     private int aliasCounter = 0;
     
@@ -54,6 +61,44 @@ public class QueryContext {
             String alias = baseAlias + (aliasCounter++);
             return alias;
         });
+    }
+    
+    /**
+     * Get or generate a unique runtime alias for a specific join instance
+     * Supports multiple joins to the same table with different join_alias values
+     * 
+     * @param objectCode The target object code
+     * @param joinAlias The join_alias from relation_info (or null for default)
+     * @param aliasHint The alias_hint to use as base (from object_meta or relation join_alias)
+     * @return Unique runtime alias for SQL generation
+     */
+    public synchronized String getOrGenerateAliasForJoin(String objectCode, String joinAlias, String aliasHint) {
+        // If no specific join alias, use default behavior
+        if (joinAlias == null || joinAlias.trim().isEmpty()) {
+            return getOrGenerateAlias(objectCode, aliasHint);
+        }
+        
+        // For specific join instances, create unique key
+        String key = objectCode + ":" + joinAlias;
+        return joinInstanceAliases.computeIfAbsent(key, k -> {
+            // Use join_alias as the base for the runtime alias
+            String baseAlias = joinAlias != null ? joinAlias : aliasHint;
+            return baseAlias + (aliasCounter++);
+        });
+    }
+    
+    /**
+     * Register a user-provided alias to its resolved object code
+     */
+    public void registerUserAlias(String userAlias, String objectCode) {
+        userAliasToObjectCode.put(userAlias, objectCode);
+    }
+    
+    /**
+     * Get object code from user-provided alias
+     */
+    public String getObjectCodeFromAlias(String userAlias) {
+        return userAliasToObjectCode.get(userAlias);
     }
     
     /**
