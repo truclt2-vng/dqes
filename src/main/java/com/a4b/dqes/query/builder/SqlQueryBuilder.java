@@ -11,6 +11,7 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
+import com.a4b.dqes.domain.FieldMeta;
 import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.OperationMeta;
 import com.a4b.dqes.domain.RelationInfo;
@@ -42,6 +43,7 @@ public class SqlQueryBuilder {
     /**
      * Build complete SQL query from resolved fields and filters
      * Optimized for NamedParameterJdbcTemplate with safe parameter binding
+     * Supports ONE_TO_MANY relations with JSON_AGG aggregation
      */
     public SqlQuery buildQuery(
         QueryContext context,
@@ -55,7 +57,8 @@ public class SqlQueryBuilder {
         Map<String, Object> parameters = new HashMap<>();
         
         // Build SELECT clause
-        String selectClause = buildSelectClause(selectFields, context.getRootObject(), countOnly);
+        Set<String> oneToManyObjects = detectOneToManyObjects(selectFields, context);
+        String selectClause = buildSelectClause(selectFields, context.getRootObject(), countOnly, oneToManyObjects, context);
         
         // Build FROM clause with root object
         String rootAlias = context.getObjectAliases().get(context.getRootObject());
@@ -71,6 +74,11 @@ public class SqlQueryBuilder {
         if (filters != null && !filters.isEmpty()) {
             sql.append(" WHERE ");
             buildWhereClause(sql, parameters, filters, context, 0);
+        }
+        
+        // GROUP BY clause for ONE_TO_MANY aggregation
+        if (!countOnly && !oneToManyObjects.isEmpty()) {
+            buildGroupByClause(sql, selectFields, context, oneToManyObjects);
         }
         
         // ORDER BY, LIMIT, OFFSET for non-count queries
@@ -99,8 +107,10 @@ public class SqlQueryBuilder {
     /**
      * Build SELECT clause with field expressions
      * Groups fields by object and uses jsonb_build_object for non-root objects
+     * For ONE_TO_MANY relations, uses JSON_AGG to aggregate child records
      */
-    private String buildSelectClause(List<ResolvedField> selectFields, String rootObject, boolean countOnly) {
+    private String buildSelectClause(List<ResolvedField> selectFields, String rootObject, boolean countOnly, 
+                                     Set<String> oneToManyObjects, QueryContext context) {
         if (countOnly) {
             return "SELECT COUNT(*) as total";
         }
@@ -120,6 +130,7 @@ public class SqlQueryBuilder {
             
             // Check if this is the root object
             boolean isRootObject = rootObject.equals(objectCode);
+            boolean isOneToMany = oneToManyObjects.contains(objectCode);
             
             if (isRootObject) {
                 // For root object, select fields directly without jsonb_build_object
@@ -136,8 +147,17 @@ public class SqlQueryBuilder {
                 if (!first) select.append(", ");
                 first = false;
                 
-                select.append("jsonb_build_object(");
                 String objectAlias = fields.size()>0 ? entry.getValue().get(0).getObjectAlias() : objectCode;
+                
+                if (isOneToMany) {
+                    // For ONE_TO_MANY: use JSON_AGG with FILTER to handle NULL cases
+                    String childTableAlias = fields.get(0).getRuntimeAlias();
+                    String childPkColumn = getPrimaryKeyColumn(context, objectCode, childTableAlias);
+                    
+                    select.append("COALESCE(JSONB_AGG(");
+                }
+                
+                select.append("jsonb_build_object(");
                 for (int i = 0; i < fields.size(); i++) {
                     
                     if (i > 0) select.append(", ");
@@ -149,10 +169,16 @@ public class SqlQueryBuilder {
                     // Add field value expression
                     select.append(buildSelectExpression(field));
                 }
+                select.append(")");
                 
+                if (isOneToMany) {
+                    // Complete JSON_AGG with FILTER and COALESCE for empty arrays
+                    String childTableAlias = fields.get(0).getRuntimeAlias();
+                    String childPkColumn = getPrimaryKeyColumn(context, objectCode, childTableAlias);
+                    select.append(") FILTER (WHERE ").append(childPkColumn).append(" IS NOT NULL), '[]'::jsonb)");
+                }
                 
-                // select.append(") AS ").append(objectCode);
-                select.append(") AS ").append(objectAlias);
+                select.append(" AS ").append(objectAlias);
             }
         }
         
@@ -430,6 +456,86 @@ public class SqlQueryBuilder {
             .findFirst()
             .map(f -> f.getColumnName())
             .orElse(fieldCode);
+    }
+    
+    /**
+     * Detect ONE_TO_MANY relations in select fields
+     */
+    private Set<String> detectOneToManyObjects(List<ResolvedField> selectFields, QueryContext context) {
+        Set<String> oneToManyObjects = new HashSet<>();
+        
+        for (ResolvedField field : selectFields) {
+            if (field.getRelationPath() != null && field.getRelationPath().getSteps() != null) {
+                for (RelationPath.PathStep step : field.getRelationPath().getSteps()) {
+                    RelationInfo relation = relationInfoRepository
+                        .findByTenantCodeAndAppCodeAndCode(
+                            context.getTenantCode(),
+                            context.getAppCode(),
+                            step.getRelationCode()
+                        )
+                        .orElse(null);
+                    
+                    if (relation != null && "ONE_TO_MANY".equals(relation.getRelationType())) {
+                        oneToManyObjects.add(step.getToObject());
+                    }
+                }
+            }
+        }
+        
+        return oneToManyObjects;
+    }
+    
+    /**
+     * Get primary key column for an object (with alias prefix)
+     */
+    private String getPrimaryKeyColumn(QueryContext context, String objectCode, String tableAlias) {
+        ObjectMeta objectMeta = context.getAllObjectMetaMap().get(objectCode);
+        if (objectMeta != null && objectMeta.getFieldMetas() != null) {
+            // Look for a field with "id" or "ID" in the name or assume first field is PK
+            for (FieldMeta field : objectMeta.getFieldMetas()) {
+                if (field.getFieldCode().toLowerCase().contains("id") || 
+                    field.getColumnName().toLowerCase().contains("id")) {
+                    return tableAlias + "." + field.getColumnName();
+                }
+            }
+            // Fallback: use first field or "id"
+            if (!objectMeta.getFieldMetas().isEmpty()) {
+                return tableAlias + "." + objectMeta.getFieldMetas().get(0).getColumnName();
+            }
+        }
+        // Last resort: assume column is "id"
+        return tableAlias + ".id";
+    }
+    
+    /**
+     * Build GROUP BY clause for root object fields when ONE_TO_MANY aggregation is used
+     */
+    private void buildGroupByClause(StringBuilder sql, List<ResolvedField> selectFields, 
+                                    QueryContext context, Set<String> oneToManyObjects) {
+        String rootObject = context.getRootObject();
+        String rootAlias = context.getObjectAliases().get(rootObject);
+        
+        // Collect all root object fields that need to be grouped
+        List<String> groupByFields = new ArrayList<>();
+        for (ResolvedField field : selectFields) {
+            if (rootObject.equals(field.getObjectCode())) {
+                // Root fields must be in GROUP BY when using aggregation
+                groupByFields.add(rootAlias + "." + field.getColumnName());
+            }
+        }
+        
+        // Add non-ONE_TO_MANY related object fields to GROUP BY
+        for (ResolvedField field : selectFields) {
+            if (!rootObject.equals(field.getObjectCode()) && !oneToManyObjects.contains(field.getObjectCode())) {
+                // These are MANY_TO_ONE or ONE_TO_ONE fields that should be grouped
+                groupByFields.add(field.getRuntimeAlias() + "." + field.getColumnName());
+            }
+        }
+        
+        if (!groupByFields.isEmpty()) {
+            sql.append(" GROUP BY ");
+            sql.append(String.join(", ", groupByFields));
+        }
     }
     
     /**
