@@ -117,7 +117,7 @@ public class DqesMetadataRefreshService {
                        username, password_enc, password_alg, ssl_enabled, ssl_mode, jdbc_params::text
                 FROM dqes.cfgtb_dbconn_info
                 WHERE tenant_code=:tenant AND app_code=:app AND conn_code=:code
-                  AND current_flg=true AND record_status <> 'D'
+                AND record_status <> 'D'
                 """;
 
         Map<String, Object> p = Map.of("tenant", tenantCode, "app", appCode, "code", connCode);
@@ -141,25 +141,20 @@ public class DqesMetadataRefreshService {
     }
 
     private void purgeExisting(int dbconnId, String tenantCode, String appCode) {
-        dqesJdbc.update("""
-                DELETE FROM dqes.qrytb_object_path_cache
-                WHERE tenant_code=:tenant AND app_code=:app
-                  AND dbconn_id=:dbconnId
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
         // delete join keys -> relations -> fields -> objects
         dqesJdbc.update("""
                 DELETE FROM dqes.qrytb_relation_join_key
                 WHERE relation_id IN (
                   SELECT id FROM dqes.qrytb_relation_info
                   WHERE tenant_code=:tenant AND app_code=:app
-                    AND (relation_props->>'dbconn_id')::int = :dbconnId
+                    AND dbconn_id=:dbconnId
                 )
                 """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
 
         dqesJdbc.update("""
                 DELETE FROM dqes.qrytb_relation_info
                 WHERE tenant_code=:tenant AND app_code=:app
-                  AND (relation_props->>'dbconn_id')::int = :dbconnId
+                  AND dbconn_id=:dbconnId
                 """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
 
         dqesJdbc.update("""

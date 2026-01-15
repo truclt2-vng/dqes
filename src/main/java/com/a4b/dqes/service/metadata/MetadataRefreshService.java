@@ -19,7 +19,6 @@ import javax.sql.DataSource;
 
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +42,8 @@ public class MetadataRefreshService {
 
     private static final int BATCH_SIZE = 500;
 
+    private boolean allowOneToManyRelations = false;
+
     private static final class Stats {
         int objects, fields, relations, joinKeys;
         MetaRefreshStats toRecord() { return new MetaRefreshStats(objects, fields, relations, joinKeys); }
@@ -55,7 +56,7 @@ public class MetadataRefreshService {
     ) {}
 
     private record ColumnInfo(String columnName, int jdbcType, String typeName, boolean nullable) {}
-    private record FieldRow(
+    private record FieldRow(int dbconnId,
             String tenant, String app, String objectCode,
             String fieldCode, String fieldLabel,
             String columnName, String aliasHint, String dataType,
@@ -114,6 +115,7 @@ public class MetadataRefreshService {
         Stats stats = new Stats();
 
         try {
+            purgeExisting(conn.id(), tenantCode, appCode);
             scanAndPersist(targetDs, conn, tenantCode, appCode, stats);
         } finally {
             if (targetDs instanceof com.zaxxer.hikari.HikariDataSource hk) hk.close();
@@ -132,6 +134,38 @@ public class MetadataRefreshService {
         //         });
 
         return stats.toRecord();
+    }
+
+    private void purgeExisting(int dbconnId, String tenantCode, String appCode) {
+        // delete join keys -> relations -> fields -> objects
+        dqesJdbc.update("""
+                DELETE FROM dqes.qrytb_relation_join_key
+                WHERE relation_id IN (
+                  SELECT id FROM dqes.qrytb_relation_info
+                  WHERE tenant_code=:tenant AND app_code=:app
+                    AND dbconn_id = :dbconnId
+                )
+                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+
+        dqesJdbc.update("""
+                DELETE FROM dqes.qrytb_relation_info
+                WHERE tenant_code=:tenant AND app_code=:app
+                  AND dbconn_id = :dbconnId
+                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+
+        dqesJdbc.update("""
+                DELETE FROM dqes.qrytb_field_meta
+                WHERE tenant_code=:tenant AND app_code=:app
+                  AND object_code IN (
+                    SELECT object_code FROM dqes.qrytb_object_meta
+                    WHERE tenant_code=:tenant AND app_code=:app AND dbconn_id=:dbconnId
+                  )
+                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+
+        dqesJdbc.update("""
+                DELETE FROM dqes.qrytb_object_meta
+                WHERE tenant_code=:tenant AND app_code=:app AND dbconn_id=:dbconnId
+                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
     }
 
     private void scanAndPersist(DataSource targetDs, DbConnInfo conn,
@@ -160,11 +194,12 @@ public class MetadataRefreshService {
                     tables.add(name);
 
                     String objectCode = toObjectCode(schema, name);
+                    String objectName = humanizeObject(name);
                     String dbTable = schema + "." + name;
 
                     objects.add(new ObjectRow(
                             conn.id(), tenantCode, appCode,
-                            objectCode, name, dbTable, aliasHint(name),
+                            objectCode, objectName, dbTable, aliasHint(name),
                             "Auto-generated from " + type,
                             objectCode + " " + name + " " + dbTable
                     ));
@@ -205,7 +240,7 @@ public class MetadataRefreshService {
                         String fieldCode = toFieldCode(colName);
                         String aliasHint = aliasHintColumn(colName);
 
-                        fields.add(new FieldRow(
+                        fields.add(new FieldRow(conn.id(),
                                 tenantCode, appCode, objectCode,
                                 fieldCode, humanize(colName), 
                                 colName,aliasHint, dataTypeCode,
@@ -268,23 +303,26 @@ public class MetadataRefreshService {
                         // defer join keys until we have relation_id
                         pendingJoinKeys.add(PendingJoinKey.of(relCode, rows));
                         
-                        // ONE_TO_MANY: reverse relation (Department -> Employee)
-                        String reverseRelCode = ("REL_" + toObject + "_" + fromObject + "_REV_" + fkName)
-                                .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
-                        
-                        relations.add(new RelationRow(conn.id(), tenantCode, appCode,
-                            reverseRelCode, toObject, fromObject, "ONE_TO_MANY", joinAlias(rows)));
-                        
-                        // Reverse join keys (swap from/to)
-                        List<FkRow> reverseRows = new ArrayList<>();
-                        for (FkRow row : rows) {
-                            reverseRows.add(new FkRow(
-                                row.fkSchema, row.fkTable, row.fkCol,  // reversed: FK becomes "PK"
-                                row.pkSchema, row.pkTable, row.pkCol,  // reversed: PK becomes "FK"
-                                row.keySeq
-                            ));
+                        if(allowOneToManyRelations){
+                            // ONE_TO_MANY: reverse relation (Department -> Employee)
+                            String reverseRelCode = ("REL_" + toObject + "_" + fromObject + "_REV_" + fkName)
+                                    .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                            
+                            relations.add(new RelationRow(conn.id(), tenantCode, appCode,
+                                reverseRelCode, toObject, fromObject, "ONE_TO_MANY", joinAlias(rows)));
+                            
+                            // Reverse join keys (swap from/to)
+                            List<FkRow> reverseRows = new ArrayList<>();
+                            for (FkRow row : rows) {
+                                reverseRows.add(new FkRow(
+                                    row.fkSchema, row.fkTable, row.fkCol,  // reversed: FK becomes "PK"
+                                    row.pkSchema, row.pkTable, row.pkCol,  // reversed: PK becomes "FK"
+                                    row.keySeq
+                                ));
+                            }
+                            pendingJoinKeys.add(PendingJoinKey.of(reverseRelCode, reverseRows));
                         }
-                        pendingJoinKeys.add(PendingJoinKey.of(reverseRelCode, reverseRows));
+                        
                     }
                 }
             }
@@ -357,7 +395,7 @@ public class MetadataRefreshService {
                fts_string_value, tenant_code, app_code)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (tenant_code, app_code, object_code)
+            ON CONFLICT ( object_code)
             DO UPDATE SET
                 object_name       = EXCLUDED.object_name,
                 db_table          = EXCLUDED.db_table,
@@ -386,10 +424,10 @@ public class MetadataRefreshService {
             INSERT INTO dqes.qrytb_field_meta
               (object_code, field_code, field_label, alias_hint, mapping_type, column_name,
                data_type, not_null, allow_select, allow_filter, allow_sort,
-               description, fts_string_value, tenant_code, app_code)
+               description, fts_string_value, tenant_code, app_code, dbconn_id)
             VALUES
-              (?, ?, ?, ?, ?, ?, ?, ?, true, true, true, ?, ?, ?, ?)
-            ON CONFLICT (tenant_code, app_code, object_code, field_code)
+              (?, ?, ?, ?, ?, ?, ?, ?, true, true, true, ?, ?, ?, ?, ?)
+            ON CONFLICT ( object_code, field_code)
             DO UPDATE SET
                 field_label      = EXCLUDED.field_label,
                 alias_hint       = EXCLUDED.alias_hint,
@@ -417,6 +455,7 @@ public class MetadataRefreshService {
             ps.setString(10, r.fts());
             ps.setString(11, r.tenant());
             ps.setString(12, r.app());
+            ps.setInt(13, r.dbconnId());
         });
     }
 
@@ -430,7 +469,7 @@ public class MetadataRefreshService {
             VALUES
               (?, ?, ?, ?, ?,'LEFT', 'AUTO',
                10, jsonb_build_object('dbconn_id', ?), ?, ?, ?)
-            ON CONFLICT (tenant_code, app_code, code)
+            ON CONFLICT (code)
             DO UPDATE SET
                 from_object_code = EXCLUDED.from_object_code,
                 to_object_code   = EXCLUDED.to_object_code,
@@ -508,11 +547,13 @@ public class MetadataRefreshService {
 
 
     private String toObjectCode(String schema, String table) {
-        return (schema + "_" + table).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+        // return (schema + "_" + table).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+        return getFieldName(table);
     }
 
     private String toFieldCode(String col) {
-        return col.toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+        // return col.toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+        return getFieldName(col);
     }
 
     private String mapToDqesDataType(int jdbcType, String typeNameRaw) {
@@ -571,6 +612,14 @@ public class MetadataRefreshService {
     private static String getFieldName(String columnName) {
 		return CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.LOWER_CAMEL, columnName);
 	}
+
+    private static String humanizeObject(String s) {
+        if (s == null) return "";
+        s = getFriendlyname(s);
+        String x = s.replace('_', ' ').trim();
+        if (x.isEmpty()) return x;
+        return Character.toUpperCase(x.charAt(0)) + x.substring(1);
+    }
 
     private static String humanize(String s) {
         if (s == null) return "";

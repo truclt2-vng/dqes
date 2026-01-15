@@ -24,8 +24,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class FieldResolverService {
     
-    private final ObjectMetaRepository objectMetaRepository;
-    private final FieldMetaRepository fieldMetaRepository;
     private final RelationGraphService relationGraphService;
     
     /**

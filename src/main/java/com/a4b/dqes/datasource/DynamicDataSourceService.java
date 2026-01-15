@@ -84,7 +84,6 @@ public class DynamicDataSourceService {
             WHERE id = :dbconnId
               AND tenant_code = :tenantCode
               AND app_code = :appCode
-              AND current_flg = true
               AND record_status <> 'D'
             """;
         
@@ -124,7 +123,6 @@ public class DynamicDataSourceService {
             WHERE conn_code = :dbconnCode
               AND tenant_code = :tenantCode
               AND app_code = :appCode
-              AND current_flg = true
               AND record_status <> 'D'
             """;
         
