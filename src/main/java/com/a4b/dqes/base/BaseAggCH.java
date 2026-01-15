@@ -68,8 +68,6 @@ public abstract class BaseAggCH<
     private D handleApprovalUpdate(U cmd, E entity) {
         MetaDataUtils.forUpdate(entity);
         entity.setAuthStatus(AuthStatus.U.name());
-        entity.setEffectiveEnd(null);
-        entity.setCurrentFlg(false);
         toUpdatePartialEntity(entity, cmd);
         
         resolveId(entity, cmd);

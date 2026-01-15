@@ -52,10 +52,4 @@ public class ControllingFieldDto implements Serializable{
 	private String authStatus;
 	@Hidden
 	private String recordStatus;
-	@Hidden
-	private OffsetDateTime effectiveStart;
-	@Hidden
-	private OffsetDateTime effectiveEnd;
-	@Hidden
-	private Boolean currentFlg;   
 }

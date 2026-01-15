@@ -28,20 +28,12 @@ public abstract class BaseEntity extends ControlFieldEntity {
 
     public void approveScdType2() {
         this.setAuthStatus(AuthStatus.A.name());
-        this.setEffectiveStart(OffsetDateTime.now());
-        this.setEffectiveEnd(null);
-        this.setCurrentFlg(true);
     }
 
     public void markAsUnauthorized() {
         this.setAuthStatus(AuthStatus.U.name());
-        this.setEffectiveStart(OffsetDateTime.now());
-        this.setEffectiveEnd(null);
-        this.setCurrentFlg(false);
     }
 
     public void closeCurrentEntity() {
-        this.setEffectiveEnd(OffsetDateTime.now());
-        this.setCurrentFlg(false);
     }
 }
