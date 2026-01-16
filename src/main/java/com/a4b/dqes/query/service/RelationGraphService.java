@@ -33,6 +33,7 @@ public class RelationGraphService {
         String appCode,
         Integer dbconnId,
         String fromObject,
+        String fromAlias,
         String toObject,
         ObjectMeta toObjectMeta
     ) {
@@ -126,6 +127,7 @@ public class RelationGraphService {
             
             path.addStep(RelationPath.PathStep.builder()
                 .fromObject(from)
+                .fromAlias(fromAlias)
                 .toObject(to)
                 .toDbTable(toObjectMeta.getDbTable())
                 .toAlias(relation.getJoinAlias())

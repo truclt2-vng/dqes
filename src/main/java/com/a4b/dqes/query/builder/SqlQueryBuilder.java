@@ -272,6 +272,9 @@ public class SqlQueryBuilder {
         }
         
         String fromAlias = context.getObjectAliases().get(step.getFromObject());
+        if(fromAlias == null){
+            fromAlias = context.getObjectAliases().get(step.getFromAlias());
+        }
         String toAlias = context.getOrGenerateAlias(step.getToObject(),step.getToAlias());
         // String toAlias = context.getOrGenerateAlias(step.getToObject(), 
         //     step.getToObject().substring(0, Math.min(3, step.getToObject().length())));

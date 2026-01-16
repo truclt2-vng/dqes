@@ -30,6 +30,7 @@ public class RelationPath {
     public static class PathStep {
         private String fromObject;
         private String fromDbTable;
+        private String fromAlias;
         private String toObject;
         private String toDbTable;
         private String toAlias;
