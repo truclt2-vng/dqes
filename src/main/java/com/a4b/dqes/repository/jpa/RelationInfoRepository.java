@@ -19,6 +19,12 @@ import java.util.Optional;
  */
 @Repository
 public interface RelationInfoRepository extends JpaRepository<RelationInfo, Integer> {
+
+    @Cacheable(value = "relationInfoByTenantCodeAndAppCode", key = "#tenantCode + '_' + #appCode")
+    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
+    List<RelationInfo> findByTenantCodeAndAppCode(
+        String tenantCode, String appCode
+    );
     
     @Cacheable(value = "relationInfoByCode", key = "#tenantCode + '_' + #appCode + '_' + #code")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))

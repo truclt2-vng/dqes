@@ -22,8 +22,8 @@ public class FilterCriteria {
     @NotBlank(message = "Field is required")
     private String field;
     
-    @NotBlank(message = "Operator code is required")
-    private String operatorCode;
+    @NotBlank(message = "Operator is required")
+    private String operator;
     
     private Object value;
     

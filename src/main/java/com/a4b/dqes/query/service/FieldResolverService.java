@@ -1,19 +1,29 @@
 package com.a4b.dqes.query.service;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Service;
+
 import com.a4b.dqes.domain.FieldMeta;
 import com.a4b.dqes.domain.ObjectMeta;
+import com.a4b.dqes.domain.RelationInfo;
+import com.a4b.dqes.query.config.BestPathRowMapper;
+import com.a4b.dqes.query.model.BestPathRow;
 import com.a4b.dqes.query.model.QueryContext;
 import com.a4b.dqes.query.model.RelationPath;
 import com.a4b.dqes.query.model.ResolvedField;
-import com.a4b.dqes.repository.jpa.FieldMetaRepository;
-import com.a4b.dqes.repository.jpa.ObjectMetaRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-
-import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Service for resolving field references to actual metadata
@@ -25,6 +35,7 @@ import java.util.stream.Collectors;
 public class FieldResolverService {
     
     private final RelationGraphService relationGraphService;
+    private final NamedParameterJdbcTemplate dqesJdbc;
     
     /**
      * Batch resolve multiple fields for improved performance
@@ -40,16 +51,32 @@ public class FieldResolverService {
             .collect(Collectors.toSet());
         
         // Pre-load all object metadata
-        Map<String, ObjectMeta> objectMetaMap = new HashMap<>();
+        Map<String, ObjectMeta> requiredObjectMetaMap = new HashMap<>();
         for (String objectCode : requiredObjects) {
             ObjectMeta objectMeta = allObjectMetaMap.get(objectCode);
-            objectMetaMap.put(objectCode, objectMeta);
+            if(objectMeta == null){
+                RelationInfo relationInfo = getRelationInfo(context, context.getRootObject(), objectCode);
+                if(relationInfo != null){
+                    ObjectMeta objectMetaRel = allObjectMetaMap.get(relationInfo.getToObjectCode());
+                    requiredObjectMetaMap.put(objectCode, objectMetaRel);
+                }else{
+                    // BFS search for best paths
+                    List<BestPathRow> bestPathRows = findBestPaths(context.getDbconnId(), context.getRootObject(),6);
+                    if(bestPathRows == null || bestPathRows.isEmpty()){
+                        throw new IllegalArgumentException("Object not found: " + objectCode);
+                    }
+                }
+                
+            }else{
+                requiredObjectMetaMap.put(objectCode, objectMeta);
+            }
+            
         }
         
         // Pre-load all field metadata for each object
         Map<String, List<FieldMeta>> fieldMetaByObject = new HashMap<>();
         for (String objectCode : requiredObjects) {
-            List<FieldMeta> fields = allObjectMetaMap.get(objectCode).getFieldMetas();
+            List<FieldMeta> fields = requiredObjectMetaMap.get(objectCode).getFieldMetas();
             fieldMetaByObject.put(objectCode, fields);
         }
         
@@ -57,13 +84,16 @@ public class FieldResolverService {
         for (String objectCode : requiredObjects) {
             if (!objectCode.equals(context.getRootObject()) && 
                 !context.getRelationPaths().containsKey(objectCode)) {
+
+                ObjectMeta objectMetaRel = requiredObjectMetaMap.get(objectCode);
                 
                 Optional<RelationPath> pathOpt = relationGraphService.findPath(
                     context.getTenantCode(),
                     context.getAppCode(),
                     context.getDbconnId(),
                     context.getRootObject(),
-                    objectCode
+                    objectCode,
+                    objectMetaRel
                 );
                 
                 if (pathOpt.isPresent()) {
@@ -75,7 +105,7 @@ public class FieldResolverService {
         // Resolve all fields
         List<ResolvedField> resolvedFields = new ArrayList<>();
         for (String fieldPath : fieldPaths) {
-            ResolvedField resolved = resolveFieldWithCache(fieldPath, context, objectMetaMap, fieldMetaByObject);
+            ResolvedField resolved = resolveFieldWithCache(fieldPath, context, requiredObjectMetaMap, fieldMetaByObject);
             resolvedFields.add(resolved);
         }
         
@@ -179,7 +209,8 @@ public class FieldResolverService {
                     context.getAppCode(),
                     context.getDbconnId(),
                     context.getRootObject(),
-                    objectCode
+                    objectCode,
+                    null // Change:JOINALIAS TODO
                 );
                 
                 if (pathOpt.isEmpty()) {
@@ -220,5 +251,42 @@ public class FieldResolverService {
             .filter(f -> f.getFieldCode().equals(fieldCode))
             .findFirst()
             .orElse(null);
+    }
+
+    private RelationInfo getRelationInfo(QueryContext context, String fromObject, String toObject) {
+        List<RelationInfo> relations = context.getAllRelationInfos().stream()
+            .filter(r -> r.getFromObjectCode().equals(fromObject) && r.getJoinAlias().equals(toObject))
+            .collect(Collectors.toList());
+        if (relations.isEmpty()) {
+            // throw new IllegalArgumentException("No relation found from " + fromObject + " to " + toObject);
+            return null;
+        }
+        return relations.get(0); // Assuming single relation for simplicity
+    }
+
+    public List<BestPathRow> findBestPaths(
+            long connId,
+            String fromObjectCode,
+            Integer maxDepth // nullable -> default in DB
+    ) {
+        String sql = """
+            SELECT
+                rel_code,
+                from_object_code,
+                to_object_code,
+                join_alias,
+                hop_count,
+                total_weight,
+                path_relation_codes
+            FROM dqes.fn_best_paths_from_object(:connId, :fromObjectCode, :maxDepth)
+            order by hop_count asc
+            """;
+
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("connId", connId)
+                .addValue("fromObjectCode", fromObjectCode)
+                .addValue("maxDepth", maxDepth);
+
+        return dqesJdbc.query(sql, params, BestPathRowMapper.INSTANCE);
     }
 }

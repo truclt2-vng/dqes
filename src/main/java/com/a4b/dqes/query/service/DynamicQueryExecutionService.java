@@ -20,6 +20,7 @@ import com.a4b.core.server.json.JSON;
 import com.a4b.dqes.datasource.DynamicDataSourceService;
 import com.a4b.dqes.domain.FieldMeta;
 import com.a4b.dqes.domain.ObjectMeta;
+import com.a4b.dqes.domain.RelationInfo;
 import com.a4b.dqes.exception.DqesRuntimeException;
 import com.a4b.dqes.query.builder.SqlQueryBuilder;
 import com.a4b.dqes.query.dto.DynamicQueryRequest;
@@ -29,6 +30,7 @@ import com.a4b.dqes.query.model.QueryContext;
 import com.a4b.dqes.query.model.ResolvedField;
 import com.a4b.dqes.repository.jpa.FieldMetaRepository;
 import com.a4b.dqes.repository.jpa.ObjectMetaRepository;
+import com.a4b.dqes.repository.jpa.RelationInfoRepository;
 import com.google.common.base.CaseFormat;
 
 import jakarta.annotation.PreDestroy;
@@ -42,6 +44,8 @@ public class DynamicQueryExecutionService {
 
     private final ObjectMetaRepository objectMetaRepository;
     private final FieldMetaRepository fieldMetaRepository;
+    private final RelationInfoRepository relationInfoRepository;
+    
     private final FieldResolverService fieldResolverService;
     private final SqlQueryBuilder sqlQueryBuilder;
     private final DynamicDataSourceService dynamicDataSourceService;
@@ -78,6 +82,7 @@ public class DynamicQueryExecutionService {
             // Load meta 1 lần
             final List<ObjectMeta> objectMetas = objectMetaRepository.findByTenantCodeAndAppCode(tenant, app);
             final List<FieldMeta> allFieldMetas = fieldMetaRepository.findByTenantCodeAndAppCode(tenant, app);
+            final List<RelationInfo> allRelationInfos = relationInfoRepository.findByTenantCodeAndAppCode(tenant, app);
 
             final Map<String, List<FieldMeta>> fieldMetaByObject =
                 allFieldMetas.stream().collect(Collectors.groupingBy(FieldMeta::getObjectCode));
@@ -99,6 +104,7 @@ public class DynamicQueryExecutionService {
                 .rootObject(request.getRootObject())
                 .rootTable(rootObject.getDbTable())
                 .allObjectMetaMap(allObjectMetaMap)
+                .allRelationInfos(allRelationInfos)
                 .build();
 
             // root alias

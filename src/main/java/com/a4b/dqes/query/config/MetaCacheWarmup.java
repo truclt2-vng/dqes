@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import com.a4b.dqes.repository.jpa.FieldMetaRepository;
 import com.a4b.dqes.repository.jpa.ObjectMetaRepository;
+import com.a4b.dqes.repository.jpa.RelationInfoRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 public class MetaCacheWarmup implements ApplicationRunner {
     private final ObjectMetaRepository objectMetaRepository;
     private final FieldMetaRepository fieldMetaRepository;
+    private final RelationInfoRepository relationInfoRepository;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -29,7 +31,8 @@ public class MetaCacheWarmup implements ApplicationRunner {
         String app = "SUPPER";
         CompletableFuture.allOf(
             warmObject(tenant, app),
-            warmField(tenant, app)
+            warmField(tenant, app),
+            warmRelationInfo(tenant, app)
         ).join();
     }
 
@@ -42,6 +45,12 @@ public class MetaCacheWarmup implements ApplicationRunner {
     @Async("applicationTaskExecutor")
     public CompletableFuture<Void> warmField(String tenant, String app) {
         fieldMetaRepository.findByTenantCodeAndAppCode(tenant, app);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Async("applicationTaskExecutor")
+    public CompletableFuture<Void> warmRelationInfo(String tenant, String app) {
+        relationInfoRepository.findByTenantCodeAndAppCode(tenant, app);
         return CompletableFuture.completedFuture(null);
     }
 }

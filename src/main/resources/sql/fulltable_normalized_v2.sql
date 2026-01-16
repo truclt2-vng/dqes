@@ -364,7 +364,7 @@ DROP TABLE IF EXISTS dqes.qrytb_field_meta CASCADE;
 
 CREATE TABLE dqes.qrytb_field_meta (
   id serial4 NOT NULL,
-
+  dbconn_id int4 NOT NULL,
   object_code  varchar(100) NOT NULL,
   field_code   varchar(100) NOT NULL,
   field_label  varchar(255) NOT NULL,

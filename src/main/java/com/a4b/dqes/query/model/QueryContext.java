@@ -1,10 +1,13 @@
 package com.a4b.dqes.query.model;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.a4b.dqes.domain.ObjectMeta;
+import com.a4b.dqes.domain.RelationInfo;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -41,6 +44,8 @@ public class QueryContext {
     
     @Builder.Default
     private Map<String, RelationPath> relationPaths = new ConcurrentHashMap<>(); // objectCode -> path from root
+
+    private List<RelationInfo> allRelationInfos = new ArrayList<>();
     
     @Builder.Default
     private int aliasCounter = 0;

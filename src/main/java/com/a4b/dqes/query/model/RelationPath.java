@@ -29,7 +29,9 @@ public class RelationPath {
     @AllArgsConstructor
     public static class PathStep {
         private String fromObject;
+        private String fromDbTable;
         private String toObject;
+        private String toDbTable;
         private String toAlias;
         private String relationCode;
         private String joinType;

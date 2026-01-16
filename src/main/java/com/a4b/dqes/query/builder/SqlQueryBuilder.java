@@ -147,8 +147,10 @@ public class SqlQueryBuilder {
                 if (!first) select.append(", ");
                 first = false;
                 
-                String objectAlias = fields.size()>0 ? entry.getValue().get(0).getObjectAlias() : objectCode;
-                
+                //Change:JOINALIAS
+                // String objectAlias = fields.size()>0 ? entry.getValue().get(0).getObjectAlias() : objectCode;
+                String objectAlias = fields.size()>0 ? entry.getKey() : objectCode;
+
                 if (isOneToMany) {
                     // For ONE_TO_MANY: use JSON_AGG with FILTER to handle NULL cases
                     String childTableAlias = fields.get(0).getRuntimeAlias();
@@ -275,7 +277,9 @@ public class SqlQueryBuilder {
         //     step.getToObject().substring(0, Math.min(3, step.getToObject().length())));
         
         // Register table name for the to object
-        String toTable = context.getObjectTable(step.getToObject());
+        // Change:JOINALIAS
+        // String toTable = context.getObjectTable(step.getToObject());
+        String toTable = step.getToDbTable();
         
         // Build JOIN clause
         sql.append(" ").append(step.getJoinType()).append(" JOIN ")
@@ -374,16 +378,16 @@ public class SqlQueryBuilder {
         //     .findByTenantCodeAndAppCodeAndCode(
         //         context.getTenantCode(),
         //         context.getAppCode(),
-        //         filter.getOperatorCode()
+        //         filter.getOperator()
         //     )
-        //     .orElseThrow(() -> new IllegalArgumentException("Unknown operator: " + filter.getOperatorCode()));
+        //     .orElseThrow(() -> new IllegalArgumentException("Unknown operator: " + filter.getOperator()));
         
         String paramName = "param_" + parameters.size();
         String fieldColumnName = getFieldColumnName(context, objectCode, fieldCode);
         String fieldRef = alias + "." + fieldColumnName;
         
         // Build condition based on operator
-        switch (filter.getOperatorCode()) {
+        switch (filter.getOperator()) {
             case "EQ":
                 sql.append(fieldRef).append(" = :").append(paramName);
                 parameters.put(paramName, filter.getValue());
@@ -440,12 +444,12 @@ public class SqlQueryBuilder {
             case "EXISTS":
             case "NOT_EXISTS":
                 // EXISTS/NOT EXISTS with subquery support
-                sql.append(filter.getOperatorCode().equals("EXISTS") ? "EXISTS" : "NOT EXISTS");
+                sql.append(filter.getOperator().equals("EXISTS") ? "EXISTS" : "NOT EXISTS");
                 sql.append(" (SELECT 1 FROM ").append(filter.getField()).append(")");
                 // Note: Full EXISTS/NOT EXISTS implementation would require subquery context
                 break;
             default:
-                throw new IllegalArgumentException("Unsupported operator: " + filter.getOperatorCode());
+                throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
         }
     }
 

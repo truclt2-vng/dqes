@@ -70,6 +70,8 @@ public class QueryCacheConfiguration {
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("fieldMetaByCode", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
+        cacheConfigurations.put("relationInfoByTenantCodeAndAppCode", 
+            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("relationInfoByCode", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("relationInfoByFromObject", 

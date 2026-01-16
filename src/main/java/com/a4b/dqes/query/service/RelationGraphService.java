@@ -1,5 +1,6 @@
 package com.a4b.dqes.query.service;
 
+import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.RelationInfo;
 import com.a4b.dqes.query.model.RelationPath;
 import com.a4b.dqes.repository.jpa.RelationInfoRepository;
@@ -32,7 +33,8 @@ public class RelationGraphService {
         String appCode,
         Integer dbconnId,
         String fromObject,
-        String toObject
+        String toObject,
+        ObjectMeta toObjectMeta
     ) {
         if (fromObject.equals(toObject)) {
             return Optional.of(RelationPath.builder()
@@ -80,7 +82,10 @@ public class RelationGraphService {
             
             List<RelationInfo> neighbors = adjacencyMap.getOrDefault(current.objectCode, new ArrayList<>());
             for (RelationInfo relation : neighbors) {
-                String neighbor = relation.getToObjectCode();
+                //Change:JOINALIAS
+                // String neighbor = relation.getToObjectCode();
+                String neighbor = relation.getJoinAlias();
+
                 int newDistance = current.distance + relation.getPathWeight();
                 
                 if (newDistance < distances.getOrDefault(neighbor, Integer.MAX_VALUE)) {
@@ -122,6 +127,7 @@ public class RelationGraphService {
             path.addStep(RelationPath.PathStep.builder()
                 .fromObject(from)
                 .toObject(to)
+                .toDbTable(toObjectMeta.getDbTable())
                 .toAlias(relation.getJoinAlias())
                 .relationCode(relation.getCode())
                 .joinType(relation.getJoinType())
