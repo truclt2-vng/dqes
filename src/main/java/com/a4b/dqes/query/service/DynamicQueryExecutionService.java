@@ -83,9 +83,9 @@ public class DynamicQueryExecutionService {
             final String app = request.getAppCode();
 
             // Load meta 1 lần
-            final List<ObjectMeta> objectMetas = objectMetaRepository.findByTenantCodeAndAppCode(tenant, app);
-            final List<FieldMeta> allFieldMetas = fieldMetaRepository.findByTenantCodeAndAppCode(tenant, app);
-            final List<RelationInfo> allRelationInfos = relationInfoRepository.findByTenantCodeAndAppCode(tenant, app);
+            final List<ObjectMeta> objectMetas = objectMetaRepository.findByDbconnId(request.getDbconnId());
+            final List<FieldMeta> allFieldMetas = fieldMetaRepository.findByDbconnId(request.getDbconnId());
+            final List<RelationInfo> allRelationInfos = relationInfoRepository.findByDbconnId(request.getDbconnId());
             final List<RelationJoinKey> allRelationJoinKeys = relationJoinKeyRepository.findByDbconnIdOrderBySeq(request.getDbconnId());
 
             final Map<String, List<FieldMeta>> fieldMetaByObject =

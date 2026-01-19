@@ -29,31 +29,29 @@ public class MetaCacheWarmup implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         // gọi method có @Cacheable -> tự đổ vào cache
-        String tenant = "SUPPER";
-        String app = "SUPPER";
         CompletableFuture.allOf(
-            warmObject(tenant, app),
-            warmField(tenant, app),
-            warmRelationInfo(tenant, app),
+            warmObject(1),
+            warmField(1),
+            warmRelationInfo(1),
             warmRelationJoinKey(1)
         ).join();
     }
 
     @Async("applicationTaskExecutor")
-    public CompletableFuture<Void> warmObject(String tenant, String app) {
-        objectMetaRepository.findByTenantCodeAndAppCode(tenant, app);
+    public CompletableFuture<Void> warmObject(Integer dbconnId) {
+        objectMetaRepository.findByDbconnId(dbconnId);
         return CompletableFuture.completedFuture(null);
     }
 
     @Async("applicationTaskExecutor")
-    public CompletableFuture<Void> warmField(String tenant, String app) {
-        fieldMetaRepository.findByTenantCodeAndAppCode(tenant, app);
+    public CompletableFuture<Void> warmField(Integer dbconnId) {
+        fieldMetaRepository.findByDbconnId(dbconnId);
         return CompletableFuture.completedFuture(null);
     }
 
     @Async("applicationTaskExecutor")
-    public CompletableFuture<Void> warmRelationInfo(String tenant, String app) {
-        relationInfoRepository.findByTenantCodeAndAppCode(tenant, app);
+    public CompletableFuture<Void> warmRelationInfo(Integer dbconnId) {
+        relationInfoRepository.findByDbconnId(dbconnId);
         return CompletableFuture.completedFuture(null);
     }
 

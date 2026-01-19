@@ -56,21 +56,13 @@ public class QueryCacheConfiguration {
         
         // Metadata caches (longer TTL - metadata changes infrequently)
         
-        cacheConfigurations.put("objectMetaByTenantCodeAppCode", 
+        cacheConfigurations.put("objectMetaByDbconnId", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("objectMetaByCode", 
+
+        cacheConfigurations.put("fieldMetaByDbconnId", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("objectMetaByAliasHint", 
-            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("objectMetaByDbconn", 
-            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("fieldMetaByTenantCodeAndAppCode", 
-            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("fieldMetaByObject", 
-            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("fieldMetaByCode", 
-            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
-        cacheConfigurations.put("relationInfoByTenantCodeAndAppCode", 
+
+        cacheConfigurations.put("relationInfoByDbconnId", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("relationInfoByCode", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));

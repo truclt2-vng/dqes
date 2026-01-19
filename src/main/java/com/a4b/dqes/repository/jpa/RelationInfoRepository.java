@@ -20,12 +20,11 @@ import java.util.Optional;
 @Repository
 public interface RelationInfoRepository extends JpaRepository<RelationInfo, Integer> {
 
-    @Cacheable(value = "relationInfoByTenantCodeAndAppCode", key = "#tenantCode + '_' + #appCode")
+
+    @Cacheable(value = "relationInfoByDbconnId", key = "#dbconnId")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<RelationInfo> findByTenantCodeAndAppCode(
-        String tenantCode, String appCode
-    );
-    
+    List<RelationInfo> findByDbconnId(Integer dbconnId);
+
 
     //Review
     @Cacheable(value = "relationInfoByCode", key = "#tenantCode + '_' + #appCode + '_' + #code")
