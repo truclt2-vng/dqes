@@ -82,6 +82,8 @@ public class QueryCacheConfiguration {
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("relationInfoNavigable", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
+        cacheConfigurations.put("relationJoinKeysByDbconnId", 
+            defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("relationJoinKeysByRelation", 
             defaultCacheConfig.entryTtl(Duration.ofHours(24)));
         cacheConfigurations.put("operationMetaByCode", 

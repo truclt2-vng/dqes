@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.RelationInfo;
+import com.a4b.dqes.domain.RelationJoinKey;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -45,7 +46,11 @@ public class QueryContext {
     @Builder.Default
     private Map<String, RelationPath> relationPaths = new ConcurrentHashMap<>(); // objectCode -> path from root
 
+    @Builder.Default
     private List<RelationInfo> allRelationInfos = new ArrayList<>();
+
+    @Builder.Default
+    List<RelationJoinKey> allJoinKeys = new ArrayList<>();
     
     @Builder.Default
     private int aliasCounter = 0;

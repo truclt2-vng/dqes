@@ -16,7 +16,7 @@ import java.util.List;
 @Repository
 public interface RelationJoinKeyRepository extends JpaRepository<RelationJoinKey, Integer> {
     
-    @Cacheable(value = "relationJoinKeysByRelation", key = "#relationId")
+    @Cacheable(value = "relationJoinKeysByDbconnId", key = "#dbconnId")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<RelationJoinKey> findByRelationIdOrderBySeq(Integer relationId);
+    List<RelationJoinKey> findByDbconnIdOrderBySeq(Integer dbconnId);
 }

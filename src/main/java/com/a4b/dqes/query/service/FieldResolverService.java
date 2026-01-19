@@ -127,9 +127,48 @@ public class FieldResolverService {
         
         // Resolve all fields
         List<ResolvedField> resolvedFields = new ArrayList<>();
+        // requiredObjectMetaMap.forEach((key, value) -> {
+        //     String fieldPath = getFielPath(fieldPaths, key);
+        //     if(fieldPath != null){
+        //         String[] parts = fieldPath.split("\\.", 2);
+        //         if (parts.length != 2) {
+        //             throw new IllegalArgumentException("Invalid field path: " + fieldPath + ". Expected format: object.field");
+        //         }
+        //         String objectCode = parts[0]; 
+        //         String fieldCode = parts[1];
+
+        //         ResolvedField resolved = resolveFieldWithCache(objectCode, fieldCode, context, requiredObjectMetaMap, fieldMetaByObject);
+        //         resolvedFields.add(resolved);
+        //     }else{
+        //         ResolvedField resolved = resolveFieldWithCache(key, null, context, requiredObjectMetaMap, fieldMetaByObject);
+        //         resolvedFields.add(resolved);
+        //     }
+        // });
+
         for (String fieldPath : fieldPaths) {
-            ResolvedField resolved = resolveFieldWithCache(fieldPath, context, requiredObjectMetaMap, fieldMetaByObject);
-            resolvedFields.add(resolved);
+            String[] parts = fieldPath.split("\\.", 2);
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("Invalid field path: " + fieldPath + ". Expected format: object.field");
+            }
+            String objectCode = parts[0]; 
+            String fieldCode = parts[1];
+
+            List<BestPathRow> bestPathByTarget = bestPathByTargetMap.get(objectCode);
+            if(bestPathByTarget != null && !bestPathByTarget.isEmpty()){
+                bestPathByTarget.forEach(row -> {
+                    String adjustedObjectCode = row.joinAlias();
+                    String adjustedFieldCode = null;
+                    if(objectCode .equals(adjustedObjectCode)){
+                        adjustedFieldCode = fieldCode;
+                    }
+                    ResolvedField resolved = resolveFieldWithCache(adjustedObjectCode, adjustedFieldCode, context, requiredObjectMetaMap, fieldMetaByObject);
+                    resolved.setSeq(row.hopCount());
+                    resolvedFields.add(resolved);
+                });
+            }else{
+                ResolvedField resolved = resolveFieldWithCache(objectCode, fieldCode, context, requiredObjectMetaMap, fieldMetaByObject);
+                resolvedFields.add(resolved);
+            }
         }
         
         return resolvedFields;
@@ -139,32 +178,19 @@ public class FieldResolverService {
      * Resolve a single field path using pre-loaded metadata cache
      */
     private ResolvedField resolveFieldWithCache(
-        String fieldPath, 
+        String objectCode, 
+        String fieldCode, 
         QueryContext context,
         Map<String, ObjectMeta> objectMetaMap,
         Map<String, List<FieldMeta>> fieldMetaByObject
     ) {
-        String[] parts = fieldPath.split("\\.", 2);
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("Invalid field path: " + fieldPath + ". Expected format: object.field");
-        }
-        
-        String objectCode = parts[0];
-        String fieldCode = parts[1];
         
         // Get object metadata from cache
         ObjectMeta objectMeta = objectMetaMap.get(objectCode);
         if (objectMeta == null) {
             throw new IllegalArgumentException("Object not found: " + objectCode);
         }
-        
-        // Get field metadata from cache
-        FieldMeta fieldMeta = fieldMetaByObject.getOrDefault(objectCode, Collections.emptyList())
-            .stream()
-            .filter(f -> f.getFieldCode().equals(fieldCode))
-            .findFirst()
-            .orElseThrow(() -> new IllegalArgumentException("Field not found: " + objectCode + "." + fieldCode));
-        
+
         // Get relation path if not the root object
         RelationPath relationPath = null;
         if (!objectCode.equals(context.getRootObject())) {
@@ -175,12 +201,29 @@ public class FieldResolverService {
                 );
             }
         }
-        
         // Get or generate alias for the object
         String runtimeAlias = context.getOrGenerateAlias(objectCode, objectMeta.getAliasHint());
+        if(fieldCode == null){
+            return ResolvedField.builder()
+            .originalFieldPath(objectCode)
+            .objectCode(objectCode)
+            .dbTable(objectMeta.getDbTable())
+            .objectAlias(objectMeta.getAliasHint())
+            .runtimeAlias(runtimeAlias)
+            .relationPath(relationPath)
+            .build();
+        }
+        // Get field metadata from cache
+        FieldMeta fieldMeta = fieldMetaByObject.getOrDefault(objectCode, Collections.emptyList())
+            .stream()
+            .filter(f -> f.getFieldCode().equals(fieldCode))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Field not found: " + objectCode + "." + fieldCode));
+        
+        
         
         return ResolvedField.builder()
-            .originalFieldPath(fieldPath)
+            .originalFieldPath(objectCode + "." + fieldCode)
             .objectCode(objectCode)
             .dbTable(objectMeta.getDbTable())
             .objectAlias(objectMeta.getAliasHint())

@@ -37,8 +37,6 @@ import lombok.extern.slf4j.Slf4j;
 public class SqlQueryBuilder {
     
     private final RelationInfoRepository relationInfoRepository;
-    private final RelationJoinKeyRepository relationJoinKeyRepository;
-    private final OperationMetaRepository operationMetaRepository;
     
     /**
      * Build complete SQL query from resolved fields and filters
@@ -118,7 +116,9 @@ public class SqlQueryBuilder {
         // Group fields by object code
         Map<String, List<ResolvedField>> fieldsByObject = new LinkedHashMap<>();
         for (ResolvedField field : selectFields) {
-            fieldsByObject.computeIfAbsent(field.getObjectCode(), k -> new ArrayList<>()).add(field);
+            if(field.getColumnName() != null && !field.getColumnName().isEmpty()){
+                fieldsByObject.computeIfAbsent(field.getObjectCode(), k -> new ArrayList<>()).add(field);
+            }
         }
         
         StringBuilder select = new StringBuilder("SELECT ");
@@ -206,6 +206,7 @@ public class SqlQueryBuilder {
         List<ResolvedField> selectFields,
         List<FilterCriteria> filters
     ) {
+        selectFields.sort((f1, f2) -> Integer.compare(f1.getSeq(), f2.getSeq()));
         Set<String> joinedObjects = new HashSet<>();
         joinedObjects.add(context.getRootObject());
         
@@ -254,21 +255,24 @@ public class SqlQueryBuilder {
         QueryContext context,
         RelationPath.PathStep step
     ) {
-        // Get relation metadata
-        RelationInfo relation = relationInfoRepository
-            .findByTenantCodeAndAppCodeAndCode(
-                context.getTenantCode(),
-                context.getAppCode(),
-                step.getRelationCode()
-            )
-            .orElseThrow(() -> new IllegalArgumentException("Relation not found: " + step.getRelationCode()));
+
+        String relCode = step.getRelationCode();
         
+        // Get relation metadata
+        RelationInfo relation = context.getAllRelationInfos().stream()
+            .filter(r -> r.getCode().equals(relCode))
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException("Relation not found: " + relCode));
+        
+        List<RelationJoinKey> allJoinKeys = context.getAllJoinKeys();
         // Get join keys
-        List<RelationJoinKey> joinKeys = relationJoinKeyRepository
-            .findByRelationIdOrderBySeq(relation.getId());
+        Integer relationId = relation.getId();
+        List<RelationJoinKey> joinKeys = allJoinKeys.stream()
+            .filter(k -> k.getRelationId().equals(relationId))
+            .toList();
         
         if (joinKeys.isEmpty()) {
-            throw new IllegalStateException("No join keys defined for relation: " + step.getRelationCode());
+            throw new IllegalStateException("No join keys defined for relation: " + relCode);
         }
         
         String fromAlias = context.getObjectAliases().get(step.getFromObject());
@@ -474,12 +478,10 @@ public class SqlQueryBuilder {
         for (ResolvedField field : selectFields) {
             if (field.getRelationPath() != null && field.getRelationPath().getSteps() != null) {
                 for (RelationPath.PathStep step : field.getRelationPath().getSteps()) {
-                    RelationInfo relation = relationInfoRepository
-                        .findByTenantCodeAndAppCodeAndCode(
-                            context.getTenantCode(),
-                            context.getAppCode(),
-                            step.getRelationCode()
-                        )
+                    String relCode = step.getRelationCode();
+                    RelationInfo relation = context.getAllRelationInfos().stream()
+                        .filter(r -> r.getCode().equals(relCode))
+                        .findFirst()
                         .orElse(null);
                     
                     if (relation != null && "ONE_TO_MANY".equals(relation.getRelationType())) {

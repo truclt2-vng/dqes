@@ -26,30 +26,16 @@ public interface RelationInfoRepository extends JpaRepository<RelationInfo, Inte
         String tenantCode, String appCode
     );
     
+
+    //Review
     @Cacheable(value = "relationInfoByCode", key = "#tenantCode + '_' + #appCode + '_' + #code")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
     Optional<RelationInfo> findByTenantCodeAndAppCodeAndCode(
         String tenantCode, String appCode, String code
     );
-    
-    @Cacheable(value = "relationInfoByFromObject", key = "#tenantCode + '_' + #appCode + '_' + #fromObjectCode")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<RelationInfo> findByTenantCodeAndAppCodeAndFromObjectCode(
-        String tenantCode, String appCode, String fromObjectCode
-    );
-    
-    @Cacheable(value = "relationInfoByToObject", key = "#tenantCode + '_' + #appCode + '_' + #toObjectCode")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<RelationInfo> findByTenantCodeAndAppCodeAndToObjectCode(
-        String tenantCode, String appCode, String toObjectCode
-    );
-    
-    @Cacheable(value = "relationInfoByPair", key = "#tenantCode + '_' + #appCode + '_' + #fromObjectCode + '_' + #toObjectCode")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<RelationInfo> findByTenantCodeAndAppCodeAndFromObjectCodeAndToObjectCode(
-        String tenantCode, String appCode, String fromObjectCode, String toObjectCode
-    );
-    
+
+
+    //Review
     @Query("SELECT r FROM RelationInfo r WHERE r.tenantCode = :tenantCode " +
            "AND r.appCode = :appCode AND r.dbconnId = :dbconnId " +
            "AND r.isNavigable = true")

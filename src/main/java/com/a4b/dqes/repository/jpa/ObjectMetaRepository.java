@@ -19,43 +19,7 @@ import java.util.Optional;
 @Repository
 public interface ObjectMetaRepository extends JpaRepository<ObjectMeta, Integer> {
 
-    @Cacheable(value = "objectMetaByCode", key = "#tenantCode + '_' + #appCode + '_' + #objectCode")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    Optional<ObjectMeta> findByTenantCodeAndAppCodeAndObjectCode(
-        String tenantCode, String appCode, String objectCode
-    );
-
-    @Cacheable(value = "objectMetaByAliasHint", key = "#tenantCode + '_' + #appCode + '_' + #aliasHint")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    Optional<ObjectMeta> findByTenantCodeAndAppCodeAndAliasHint(
-        String tenantCode, String appCode, String aliasHint
-    );
-
-    Optional<List<ObjectMeta>> findByTenantCodeAndAppCodeAndAliasHintIn(
-        String tenantCode, String appCode, List<String> aliasHints
-    );
-    
-    @Cacheable(value = "objectMetaByDbconn", key = "#tenantCode + '_' + #appCode + '_' + #dbconnId")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<ObjectMeta> findByTenantCodeAndAppCodeAndDbconnId(
-        String tenantCode, String appCode, Integer dbconnId
-    );
-    
     @Cacheable(value = "objectMetaByTenantCodeAppCode", key = "#tenantCode + '_' + #appCode")
     @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    List<ObjectMeta> findByTenantCodeAndAppCode(
-        String tenantCode, String appCode
-    );
-    
-    /**
-     * Optimized projection query for table name lookup
-     */
-    @Query("SELECT o.dbTable FROM ObjectMeta o WHERE o.tenantCode = :tenantCode " +
-           "AND o.appCode = :appCode AND o.objectCode = :objectCode")
-    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
-    Optional<String> findDbTableByCode(
-        @Param("tenantCode") String tenantCode,
-        @Param("appCode") String appCode,
-        @Param("objectCode") String objectCode
-    );
+    List<ObjectMeta> findByTenantCodeAndAppCode(String tenantCode, String appCode);
 }

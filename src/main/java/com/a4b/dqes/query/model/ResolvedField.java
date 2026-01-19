@@ -5,9 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Represents a resolved field in the query
  */
@@ -30,4 +27,7 @@ public class ResolvedField {
     private String mappingType; // COLUMN or EXPR
     private String selectExprCode;
     private String filterExprCode;
+    
+    @Builder.Default
+    private Integer seq=1;
 }
