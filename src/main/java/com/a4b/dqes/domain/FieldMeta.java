@@ -66,6 +66,6 @@ public class FieldMeta implements Serializable {
     @Column(name = "description", length = 2000)
     private String description;
     
-    // @Column(name = "dbconn_id", nullable = false)
-    // private Integer dbconnId;
+    @Column(name = "dbconn_id", nullable = false)
+    private Integer dbconnId;
 }

@@ -1,12 +1,19 @@
 package com.a4b.dqes.domain;
 
+import java.io.Serializable;
+import java.util.List;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import jakarta.persistence.*;
-import java.io.Serializable;
 
 /**
  * Entity for qrytb_relation_info table
@@ -65,4 +72,7 @@ public class RelationInfo implements Serializable {
     
     @Column(name = "dbconn_id", nullable = false)
     private Integer dbconnId;
+
+    @Transient
+    private List<RelationJoinKey> joinKeys;
 }

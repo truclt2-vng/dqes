@@ -42,7 +42,7 @@ public class MetadataRefreshService {
 
     private static final int BATCH_SIZE = 500;
 
-    private boolean allowOneToManyRelations = false;
+    private boolean allowOneToManyRelations = true;
 
     private static final class Stats {
         int objects, fields, relations, joinKeys;
@@ -55,7 +55,6 @@ public class MetadataRefreshService {
             String description, String fts
     ) {}
 
-    private record ColumnInfo(String columnName, int jdbcType, String typeName, boolean nullable) {}
     private record FieldRow(int dbconnId,
             String tenant, String app, String objectCode,
             String fieldCode, String fieldLabel,
@@ -63,7 +62,7 @@ public class MetadataRefreshService {
             boolean notNull, String description, String fts
     ) {}
 
-        private record RelationRow(
+    private record RelationRow(
             int dbconnId, String tenant, String app,
             String code, String fromObject, String toObject,
             String relationType,  // MANY_TO_ONE or ONE_TO_MANY
@@ -178,13 +177,13 @@ public class MetadataRefreshService {
 
         try (Connection cx = targetDs.getConnection()) {
             DatabaseMetaData md = cx.getMetaData();
-            String schemaPattern = conn.dbSchema();
+            String targetSchema = conn.dbSchema();
             String[] types = new String[] { "TABLE", "VIEW", "MATERIALIZED VIEW" };
 
             Map<String, String> objectCodeByTableKey = new HashMap<>();
 
             // 1) tables/views -> objects list
-            try (ResultSet rs = md.getTables(cx.getCatalog(), schemaPattern, "%", types)) {
+            try (ResultSet rs = md.getTables(cx.getCatalog(), targetSchema, "%", types)) {
                 while (rs.next()) {
                     String schema = rs.getString("TABLE_SCHEM");
                     String name   = rs.getString("TABLE_NAME");
@@ -296,9 +295,15 @@ public class MetadataRefreshService {
                         String relCode = ("REL_" + fromObject + "_" + toObject + "_" + fkName)
                                 .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
 
+                        String relationType = "MANY_TO_ONE";
+                        // Optional: detect ONE_TO_ONE
+                        if (isFkUnique(md, targetSchema, table, rows)) {
+                            relationType = "ONE_TO_ONE";
+                        }
+
                         // MANY_TO_ONE: FK table -> PK table (Employee -> Department)
                         relations.add(new RelationRow(conn.id(), tenantCode, appCode, 
-                            relCode, fromObject, toObject, "MANY_TO_ONE", joinAlias(rows)));
+                            relCode, fromObject, toObject, relationType, joinAlias(rows)));
 
                         // defer join keys until we have relation_id
                         pendingJoinKeys.add(PendingJoinKey.of(relCode, rows));
@@ -354,6 +359,36 @@ public class MetadataRefreshService {
 
             batchInsertJoinKeys(joinKeys);
             stats.joinKeys += joinKeys.size();
+        }
+    }
+
+    /**
+     * Optional: detect ONE_TO_ONE if FK columns are exactly a unique index columns.
+     */
+    private boolean isFkUnique(DatabaseMetaData md, String schema, String table, List<FkRow> rows) {
+        try {
+            List<String> fkCols = rows.stream()
+                    .map(r -> r.fkCol == null ? "" : r.fkCol.toLowerCase())
+                    .sorted()
+                    .toList();
+
+            Map<String, List<String>> idxCols = new LinkedHashMap<>();
+            try (ResultSet rs = md.getIndexInfo(null, schema, table, true, false)) {
+                while (rs.next()) {
+                    String idx = rs.getString("INDEX_NAME");
+                    String col = rs.getString("COLUMN_NAME");
+                    if (idx == null || col == null) continue;
+                    idxCols.computeIfAbsent(idx, k -> new ArrayList<>()).add(col.toLowerCase());
+                }
+            }
+
+            for (List<String> cols : idxCols.values()) {
+                List<String> sorted = cols.stream().sorted().toList();
+                if (sorted.equals(fkCols)) return true;
+            }
+            return false;
+        } catch (SQLException e) {
+            return false;
         }
     }
 

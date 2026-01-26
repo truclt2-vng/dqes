@@ -2,6 +2,7 @@ package com.a4b.dqes.query.controller;
 
 import com.a4b.dqes.query.dto.DynamicQueryRequest;
 import com.a4b.dqes.query.dto.DynamicQueryResult;
+import com.a4b.dqes.query.service.DynamicQueryEngineService;
 import com.a4b.dqes.query.service.DynamicQueryExecutionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,8 @@ import org.springframework.web.bind.annotation.*;
 public class DynamicQueryController {
     
     private final DynamicQueryExecutionService queryExecutionService;
+
+    private final DynamicQueryEngineService dynamicQueryEngineService;
     
     @PostMapping("/execute")
     @Operation(
@@ -42,7 +45,8 @@ public class DynamicQueryController {
         );
         
         try {
-            DynamicQueryResult result = queryExecutionService.executeQuery(request);
+            // DynamicQueryResult result = queryExecutionService.executeQuery(request);
+            DynamicQueryResult result = dynamicQueryEngineService.executeQuery(request);
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             log.error("Invalid query request", e);

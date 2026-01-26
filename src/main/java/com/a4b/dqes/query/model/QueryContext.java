@@ -36,6 +36,9 @@ public class QueryContext {
     
     @Builder.Default
     private Map<String, String> objectAliases = new ConcurrentHashMap<>(); // objectCode -> alias
+
+    @Builder.Default
+    private Map<String, ObjectMeta> objectMetaPlan = new ConcurrentHashMap<>(); // objectCode -> alias
     
     @Builder.Default
     private Map<String, String> objectTables = new ConcurrentHashMap<>(); // objectCode -> table name

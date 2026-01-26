@@ -2,9 +2,11 @@ package com.a4b.dqes.query.service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,13 +24,17 @@ import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.RelationInfo;
 import com.a4b.dqes.domain.RelationJoinKey;
 import com.a4b.dqes.exception.DqesRuntimeException;
+import com.a4b.dqes.query.builder.PostgreQueryBuilder;
 import com.a4b.dqes.query.builder.SqlQuery;
-import com.a4b.dqes.query.builder.SqlQueryBuilder;
 import com.a4b.dqes.query.dto.DynamicQueryRequest;
 import com.a4b.dqes.query.dto.DynamicQueryResult;
-import com.a4b.dqes.query.dto.FilterCriteria;
 import com.a4b.dqes.query.model.QueryContext;
-import com.a4b.dqes.query.model.ResolvedField;
+import com.a4b.dqes.query.planner.DotPath;
+import com.a4b.dqes.query.planner.FieldKey;
+import com.a4b.dqes.query.planner.FilterFieldExtractor;
+import com.a4b.dqes.query.planner.JoinPathPlanner;
+import com.a4b.dqes.query.planner.PlanRequest;
+import com.a4b.dqes.query.planner.Planner;
 import com.a4b.dqes.repository.jpa.FieldMetaRepository;
 import com.a4b.dqes.repository.jpa.ObjectMetaRepository;
 import com.a4b.dqes.repository.jpa.RelationInfoRepository;
@@ -42,19 +48,19 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class DynamicQueryExecutionService {
+public class DynamicQueryEngineService {
 
     private final ObjectMetaRepository objectMetaRepository;
     private final FieldMetaRepository fieldMetaRepository;
     private final RelationInfoRepository relationInfoRepository;
     private final RelationJoinKeyRepository relationJoinKeyRepository;
     
-    private final FieldResolverService fieldResolverService;
-    private final SqlQueryBuilder sqlQueryBuilder;
-    private final DynamicDataSourceService dynamicDataSourceService;
-
     // cache snake_case -> camelCase theo columnName (tối ưu normalizeData cho nhiều rows)
     private final Map<String, String> columnNameCache = new ConcurrentHashMap<>();
+
+    private final JoinPathPlanner joinPathPlanner;
+    private final PostgreQueryBuilder queryBuilder;
+    private final DynamicDataSourceService dynamicDataSourceService;
 
     // Virtual threads (Java 21+) fallback fixed pool
     private final ExecutorService executorService = createExecutorService();
@@ -81,25 +87,50 @@ public class DynamicQueryExecutionService {
         try {
             final String tenant = request.getTenantCode();
             final String app = request.getAppCode();
+            final Integer dbconnId = request.getDbconnId();
 
             // Load meta 1 lần
-            final List<ObjectMeta> objectMetas = objectMetaRepository.findByDbconnId(request.getDbconnId());
-            final List<FieldMeta> allFieldMetas = fieldMetaRepository.findByDbconnId(request.getDbconnId());
-            final List<RelationInfo> allRelationInfos = relationInfoRepository.findByDbconnId(request.getDbconnId());
-            final List<RelationJoinKey> allRelationJoinKeys = relationJoinKeyRepository.findByDbconnIdOrderBySeq(request.getDbconnId());
+            final List<ObjectMeta> objectMetas = objectMetaRepository.findByDbconnId(dbconnId);
+            final List<FieldMeta> allFieldMetas = fieldMetaRepository.findByDbconnId(dbconnId);
+            final List<RelationInfo> allRelationInfos = relationInfoRepository.findByDbconnId(dbconnId);
+            final List<RelationJoinKey> allRelationJoinKeys = relationJoinKeyRepository.findByDbconnIdOrderBySeq(dbconnId);
 
-            final Map<String, List<FieldMeta>> fieldMetaByObject =
-                allFieldMetas.stream().collect(Collectors.groupingBy(FieldMeta::getObjectCode));
+            final Map<String, List<FieldMeta>> fieldMetaByObjectMap =allFieldMetas.stream().collect(Collectors.groupingBy(FieldMeta::getObjectCode));
 
             // Build object map + attach fieldMetas
             final Map<String, ObjectMeta> allObjectMetaMap = objectMetas.stream()
-                .peek(om -> om.setFieldMetas(fieldMetaByObject.getOrDefault(om.getObjectCode(), List.of())))
+                .peek(om -> om.setFieldMetas(fieldMetaByObjectMap.getOrDefault(om.getObjectCode(), List.of())))
                 .collect(Collectors.toMap(ObjectMeta::getObjectCode, om -> om, (a, b) -> a, HashMap::new));
+
+            allRelationInfos.forEach(ri -> {
+                List<RelationJoinKey> joinKeys = allRelationJoinKeys.stream()
+                    .filter(rjk -> rjk.getRelationId().equals(ri.getId()))
+                    .toList();
+                ri.setJoinKeys(joinKeys);
+            });
 
             final ObjectMeta rootObject = allObjectMetaMap.get(request.getRootObject());
             if (rootObject == null) {
                 throw new DqesRuntimeException("Root object not found: " + request.getRootObject());
             }
+
+            // Parse dot-paths
+            List<FieldKey> selectFields = request.getSelectFields().stream().map(DotPath::parse).toList();
+            
+            Set<String> filterFieldkeys = FilterFieldExtractor.extractFields(request.getFilters());
+            List<FieldKey> filterFields = filterFieldkeys.stream().map(DotPath::parse).toList();
+
+            // Objects
+            Set<String> selectObjects = selectFields.stream().map(FieldKey::objectCode).collect(Collectors.toSet());
+            Set<String> filterObjects = filterFields.stream().map(FieldKey::objectCode).collect(Collectors.toSet());
+
+            Set<String> requiredObjects = new HashSet<>();
+            requiredObjects.add(rootObject.getObjectCode());
+            requiredObjects.addAll(selectObjects);
+            requiredObjects.addAll(filterObjects);
+
+            PlanRequest planReq = new PlanRequest(dbconnId, rootObject, selectFields, filterFields);
+            // Graph graph = new Graph(allRelationInfos);
 
             final QueryContext context = QueryContext.builder()
                 .tenantCode(tenant)
@@ -112,41 +143,9 @@ public class DynamicQueryExecutionService {
                 .allJoinKeys(allRelationJoinKeys)
                 .build();
 
-            // root alias
-            context.getOrGenerateAlias(rootObject.getObjectCode(), rootObject.getAliasHint());
-
-            // tables map (nếu QueryBuilder cần)
-            allObjectMetaMap.forEach((objectCode, objectMeta) ->
-                context.getObjectTables().put(objectCode, objectMeta.getDbTable())
-            );
-
-            // Resolve select fields (batch)
-            final List<ResolvedField> resolvedFields;
-            if (request.getSelectFields() == null || request.getSelectFields().isEmpty()) {
-                resolvedFields = List.of();
-            } else {
-                resolvedFields = fieldResolverService.batchResolveFields(
-                    request.getSelectFields(),
-                    context,
-                    allObjectMetaMap
-                );
-            }
-
-            // Resolve filter fields (đảm bảo join planner biết)
-            if (request.getFilters() != null && !request.getFilters().isEmpty()) {
-                resolveFilterFields(request.getFilters(), context);
-            }
-
-            final NamedParameterJdbcTemplate targetJdbcTemplate = dynamicDataSourceService.getJdbcTemplate(
-                tenant, app, request.getDbconnId()
-            );
-
-            final boolean countOnly = Boolean.TRUE.equals(request.getCountOnly());
-
-            SqlQuery dataQuery = null;
-            SqlQuery countQuery = null;
-
-
+            Planner planner = joinPathPlanner.plan(planReq, context);
+            log.info("Planning completed in {} ms", System.currentTimeMillis() - startTime);
+            
             Long totalCount = null;
             List<Map<String, Object>> data = null;
 
@@ -156,42 +155,24 @@ public class DynamicQueryExecutionService {
             Integer offset = null;
             Integer limit = null;
 
+
+            SqlQuery query = queryBuilder.buildQuery(context, planner, planReq, request.getFilters(), request.getOffset(), request.getLimit(), request.getCountOnly());
+            executedSql = query.getSql();
+            executedParams = query.getParameters();
+
+            final NamedParameterJdbcTemplate targetJdbcTemplate = dynamicDataSourceService.getJdbcTemplate(
+                tenant, app, request.getDbconnId()
+            );
+            final boolean countOnly = Boolean.TRUE.equals(request.getCountOnly());
             if (countOnly) {
-                countQuery = sqlQueryBuilder.buildQuery(
-                    context,
-                    resolvedFields,
-                    request.getFilters(),
-                    null,
-                    null,
-                    true
-                );
-                executedSql = countQuery.getSql();
-                executedParams = countQuery.getParameters();
-                totalCount = targetJdbcTemplate.queryForObject(countQuery.getSql(), countQuery.getParameters(), Long.class);
-            } else {
+                totalCount = targetJdbcTemplate.queryForObject(executedSql, executedParams, Long.class);
+            }else{
+                data = targetJdbcTemplate.queryForList(executedSql, executedParams);
                 offset = request.getOffset();
                 limit = request.getLimit();
-                dataQuery = sqlQueryBuilder.buildQuery(
-                    context,
-                    resolvedFields,
-                    request.getFilters(),
-                    request.getOffset(),
-                    request.getLimit(),
-                    false
-                );
-                data = targetJdbcTemplate.queryForList(dataQuery.getSql(), dataQuery.getParameters());
-                executedSql = dataQuery.getSql();
-                executedParams = dataQuery.getParameters();
             }
 
             final long executionTime = System.currentTimeMillis() - startTime;
-
-            log.info("Query executed in {}ms, returned {} rows{}",
-                executionTime,
-                data != null ? data.size() : 0,
-                totalCount != null ? ", total: " + totalCount : ""
-            );
-
             return DynamicQueryResult.builder()
                 .data(normalizeData(data))
                 .totalCount(totalCount)
@@ -201,26 +182,12 @@ public class DynamicQueryExecutionService {
                 .parameters(executedParams)
                 .executionTimeMs(executionTime)
                 .build();
-
         } catch (Exception e) {
             log.error("Error executing dynamic query for {}.{}",
                 request.getTenantCode(), request.getRootObject(), e);
             throw (e instanceof DqesRuntimeException dre)
                 ? dre
                 : new DqesRuntimeException("Failed to execute query: " + e.getMessage(), e);
-        }
-    }
-
-    private void resolveFilterFields(List<FilterCriteria> filters, QueryContext context) {
-        for (FilterCriteria filter : filters) {
-            final String field = filter.getField();
-            if (field != null && !field.isBlank()) {
-                fieldResolverService.resolveField(field, context);
-            }
-            final List<FilterCriteria> sub = filter.getSubFilters();
-            if (sub != null && !sub.isEmpty()) {
-                resolveFilterFields(sub, context);
-            }
         }
     }
 

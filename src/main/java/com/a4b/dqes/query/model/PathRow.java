@@ -6,7 +6,7 @@ package com.a4b.dqes.query.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-public record BestPathRow(
+public record PathRow(
             String relCode,
             String fromObjectCode,
             String toObjectCode,

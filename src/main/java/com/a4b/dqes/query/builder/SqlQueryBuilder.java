@@ -421,11 +421,11 @@ public class SqlQueryBuilder {
                 break;
             case "IN":
                 sql.append(fieldRef).append(" IN (:").append(paramName).append(")");
-                parameters.put(paramName, filter.getValues());
+                parameters.put(paramName, filter.getValue());
                 break;
             case "NOT_IN":
                 sql.append(fieldRef).append(" NOT IN (:").append(paramName).append(")");
-                parameters.put(paramName, filter.getValues());
+                parameters.put(paramName, filter.getValue());
                 break;
             case "LIKE":
                 sql.append(fieldRef).append(" LIKE :").append(paramName);
@@ -544,30 +544,6 @@ public class SqlQueryBuilder {
         if (!groupByFields.isEmpty()) {
             sql.append(" GROUP BY ");
             sql.append(String.join(", ", groupByFields));
-        }
-    }
-    
-    /**
-     * Inner class to hold SQL and parameters
-     */
-    public static class SqlQuery {
-        private String sql;
-        private Map<String, Object> parameters;
-        
-        public String getSql() {
-            return sql;
-        }
-        
-        public void setSql(String sql) {
-            this.sql = sql;
-        }
-        
-        public Map<String, Object> getParameters() {
-            return parameters;
-        }
-        
-        public void setParameters(Map<String, Object> parameters) {
-            this.parameters = parameters;
         }
     }
 }

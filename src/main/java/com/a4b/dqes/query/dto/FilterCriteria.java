@@ -29,7 +29,7 @@ public class FilterCriteria {
     
     private Object value2; // For BETWEEN operator
     
-    private List<Object> values; // For IN, NOT_IN operators
+    // private List<Object> values; // For IN, NOT_IN operators
     
     // For nested filters (AND/OR grouping)
     private String logicalOperator; // AND, OR

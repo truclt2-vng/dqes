@@ -19,8 +19,8 @@ import com.a4b.core.server.utils.Pair;
 import com.a4b.dqes.domain.FieldMeta;
 import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.RelationInfo;
-import com.a4b.dqes.query.config.BestPathRowMapper;
-import com.a4b.dqes.query.model.BestPathRow;
+import com.a4b.dqes.query.config.PathRowMapper;
+import com.a4b.dqes.query.model.PathRow;
 import com.a4b.dqes.query.model.QueryContext;
 import com.a4b.dqes.query.model.RelationPath;
 import com.a4b.dqes.query.model.ResolvedField;
@@ -59,7 +59,7 @@ public class FieldResolverService {
         pathRequiredObjects.addAll(requiredObjects);
         // Pre-load all object metadata
         Map<String, ObjectMeta> requiredObjectMetaMap = new HashMap<>();
-        Map<String, List<BestPathRow>> bestPathByTargetMap = new HashMap<>();
+        Map<String, List<PathRow>> bestPathByTargetMap = new HashMap<>();
         for (String objectCode : requiredObjects) {
             ObjectMeta objectMeta = allObjectMetaMap.get(objectCode);
             if(objectMeta == null){
@@ -69,11 +69,11 @@ public class FieldResolverService {
                     requiredObjectMetaMap.put(objectCode, objectMetaRel);
                 }else{
                     // BFS search for best paths
-                    List<BestPathRow> bestPathRows = findBestPaths(context.getDbconnId(), context.getRootObject(),6);
+                    List<PathRow> bestPathRows = findBestPaths(context.getDbconnId(), context.getRootObject(),6);
                     if(bestPathRows == null || bestPathRows.isEmpty()){
                         throw new IllegalArgumentException("Object not found: " + objectCode);
                     }
-                    List<BestPathRow> bestPathByTarget = bestPathByTarget(bestPathRows, objectCode);
+                    List<PathRow> bestPathByTarget = bestPathByTarget(bestPathRows, objectCode);
                     if (bestPathByTarget == null || bestPathByTarget.isEmpty()) {
                         throw new IllegalArgumentException("Object not found: " + objectCode);
                     }
@@ -104,7 +104,7 @@ public class FieldResolverService {
                 !context.getRelationPaths().containsKey(objectCode)) {
 
                 String fromObject = context.getRootObject();
-                List<BestPathRow> bestPathByTarget = bestPathByTargetMap.get(objectCode);
+                List<PathRow> bestPathByTarget = bestPathByTargetMap.get(objectCode);
                 Pair<String, String> fromObjectAndAlias = resolveFromObject(context, bestPathByTarget, fromObject, objectCode);
 
                 ObjectMeta objectMetaRel = requiredObjectMetaMap.get(objectCode);
@@ -153,7 +153,7 @@ public class FieldResolverService {
             String objectCode = parts[0]; 
             String fieldCode = parts[1];
 
-            List<BestPathRow> bestPathByTarget = bestPathByTargetMap.get(objectCode);
+            List<PathRow> bestPathByTarget = bestPathByTargetMap.get(objectCode);
             if(bestPathByTarget != null && !bestPathByTarget.isEmpty()){
                 bestPathByTarget.forEach(row -> {
                     String adjustedObjectCode = row.joinAlias();
@@ -331,7 +331,7 @@ public class FieldResolverService {
         return relations.get(0); // Assuming single relation for simplicity
     }
 
-    public List<BestPathRow> findBestPaths(
+    public List<PathRow> findBestPaths(
             long connId,
             String fromObjectCode,
             Integer maxDepth // nullable -> default in DB
@@ -354,13 +354,13 @@ public class FieldResolverService {
                 .addValue("fromObjectCode", fromObjectCode)
                 .addValue("maxDepth", maxDepth);
 
-        return dqesJdbc.query(sql, params, BestPathRowMapper.INSTANCE);
+        return dqesJdbc.query(sql, params, PathRowMapper.INSTANCE);
     }
 
-    private List<BestPathRow> bestPathByTarget(List<BestPathRow> pathFromRoots, String tagetObject){
+    private List<PathRow> bestPathByTarget(List<PathRow> pathFromRoots, String tagetObject){
         TypeReference<List<String>> listStringTypeRef = new TypeReference<>() {};
         Set<String> requiredRelationCodes = new HashSet<>();
-        for(BestPathRow row : pathFromRoots){
+        for(PathRow row : pathFromRoots){
             if(row.joinAlias().equals(tagetObject)){
                 JsonNode pathRelationCodesJson = row.pathRelationCodesJson();
                 List<String> relationCodes = JSON.getObjectMapper().convertValue(pathRelationCodesJson, listStringTypeRef);
@@ -372,14 +372,14 @@ public class FieldResolverService {
             .collect(Collectors.toList());
     }
 
-    private Pair<String, String> resolveFromObject(QueryContext context, List<BestPathRow> bestPathByTarget, String fromObject, String targetObject){
+    private Pair<String, String> resolveFromObject(QueryContext context, List<PathRow> bestPathByTarget, String fromObject, String targetObject){
         if(bestPathByTarget == null || bestPathByTarget.isEmpty()){
             return new Pair<>(fromObject, null);
         }
 
         String fromAlias = null;
         List<RelationInfo> allRelations = context.getAllRelationInfos();
-        for(BestPathRow row : bestPathByTarget){
+        for(PathRow row : bestPathByTarget){
             String relCode = row.relCode();
             RelationInfo relationInfo = allRelations.stream()
                 .filter(r -> r.getCode().equals(relCode))

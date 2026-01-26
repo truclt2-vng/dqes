@@ -45,8 +45,7 @@ public class DynamicDataSourceService {
         }
         
         return templateCache.computeIfAbsent(dbconnId, id -> {
-            log.info("Creating new JDBC template for dbconnId={}, tenant={}, app={}", 
-                id, tenantCode, appCode);
+            log.info("Creating new JDBC template for dbconnId={}, tenant={}, app={}", id, tenantCode, appCode);
             
             try {
                 // Load connection info from cfgtb_dbconn_info
