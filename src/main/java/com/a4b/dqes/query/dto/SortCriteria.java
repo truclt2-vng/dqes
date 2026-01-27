@@ -16,10 +16,10 @@ import jakarta.validation.constraints.NotBlank;
 @AllArgsConstructor
 public class SortCriteria {
     
-    @NotBlank(message = "Field is required")
-    private String field;
+    // @NotBlank(message = "Field is required")
+    // private String field;
     
-    private String direction = "ASC"; // ASC or DESC
+    private String dir = "ASC"; // ASC or DESC
     
-    private String nullsHandling; // NULLS_FIRST, NULLS_LAST
+    private String nulls; // NULLS_FIRST, NULLS_LAST
 }

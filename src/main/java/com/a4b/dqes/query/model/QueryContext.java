@@ -31,6 +31,11 @@ public class QueryContext {
     private String rootObject;
     private String rootTable; // Physical table name for root object
 
+    private boolean distinct;
+    private Integer offset;
+    private Integer limit;
+    private boolean countOnly;
+
     @Builder.Default
     private Map<String, ObjectMeta> allObjectMetaMap = new ConcurrentHashMap<>();
     

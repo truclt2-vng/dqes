@@ -18,6 +18,7 @@ public class JoinStep {
     private RelationInfo relationInfo;
     private String joinTable;
     private String runtimeAlias;
+    private String relationType;
 
     @Builder.Default
     private int joinOrder=1;

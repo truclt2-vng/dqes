@@ -13,9 +13,10 @@ import org.springframework.stereotype.Component;
 import com.a4b.dqes.domain.FieldMeta;
 import com.a4b.dqes.domain.ObjectMeta;
 import com.a4b.dqes.domain.RelationJoinKey;
-import com.a4b.dqes.query.builder.filter.PostgreFilterBuilder;
 import com.a4b.dqes.query.builder.filter.FilterSpec;
+import com.a4b.dqes.query.builder.filter.PostgreFilterBuilder;
 import com.a4b.dqes.query.dto.FilterCriteria;
+import com.a4b.dqes.query.dto.SortCriteria;
 import com.a4b.dqes.query.model.QueryContext;
 import com.a4b.dqes.query.planner.FieldKey;
 import com.a4b.dqes.query.planner.PlanRequest;
@@ -29,30 +30,16 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class PostgreQueryBuilder {
 
-    private Map<String, String> dataTypeMapping = Map.of(
-        "STRING", "java.lang.String",
-        "NUMBER", "java.math.BigDecimal",
-        "INT", "java.lang.Long",
-        "BOOLEAN", "java.lang.Boolean",
-        "DATE", "java.time.LocalDate",
-        "TIMESTAMP", "java.time.OffsetDateTime",
-        "UUID", "java.util.UUID",
-        "JSON", "com.fasterxml.jackson.databind.JsonNode",
-        "TSVECTOR", "java.lang.String"
-    );
-    
     public SqlQuery buildQuery(QueryContext context, 
         Planner planner,
         PlanRequest planRequest,
         List<FilterCriteria> filters,
-        Integer offset,
-        Integer limit,
-        boolean countOnly) 
+         Map<String, SortCriteria> sorts) 
     {
         SqlQuery query = new SqlQuery();
         Map<String, Object> parameters = new HashMap<>();
 
-        String select = countOnly ? buildSelectCount() : buildSelectFields(context, planRequest);
+        String select = context.isCountOnly() ? buildSelectCount() : buildSelectFields(context, planRequest, context.isDistinct());
         String from = buildFromClause(context, planner);
         String where = buildWhereClause(parameters, filters, context, 0);
         StringBuilder sql = new StringBuilder(select).append(from);
@@ -61,14 +48,19 @@ public class PostgreQueryBuilder {
             sql.append(" WHERE ").append(where);
         }
 
-        if (!countOnly) {
-            if (limit != null) {
+        String orderBy = buildSort(context, sorts);
+        if (orderBy != null) {
+            sql.append(orderBy);
+        }
+
+        if (!context.isCountOnly()) {
+            if (context.getLimit() != null) {
                 sql.append(" LIMIT :limit");
-                parameters.put("limit", limit);
+                parameters.put("limit", context.getLimit());
             }
-            if (offset != null && offset > 0) {
+            if (context.getOffset() != null && context.getOffset() > 0) {
                 sql.append(" OFFSET :offset");
-                parameters.put("offset", offset);
+                parameters.put("offset", context.getOffset());
             }
         }
 
@@ -81,8 +73,8 @@ public class PostgreQueryBuilder {
         return "SELECT  COUNT(*) AS total ";
     }
 
-    private String buildSelectFields(QueryContext context, PlanRequest planRequest) {
-        StringBuilder selectClause = new StringBuilder("SELECT ");
+    private String buildSelectFields(QueryContext context, PlanRequest planRequest, boolean distinct) {
+        StringBuilder selectClause = new StringBuilder("SELECT " + (distinct ? "DISTINCT " : ""));
         boolean first = true;
 
         Map<String, List<String>> resolvedSelectField = resolvedSelectField(planRequest.getSelectFields());
@@ -131,6 +123,9 @@ public class PostgreQueryBuilder {
         String rootAlias = context.getObjectAliases().get(planner.getObjectCode());
         fromClause.append(context.getRootTable()).append(" ").append(rootAlias).append(" ");
 
+        if(planner.getJoinSteps() == null){
+            return fromClause.toString();
+        }
         planner.getJoinSteps().forEach(step -> {
             String joinType = step.getRelationInfo().getJoinType();
             String runtimeFromAlias = context.getObjectAliases().get(step.getFromObjectCode());
@@ -176,6 +171,9 @@ public class PostgreQueryBuilder {
         int level
     ) {
         StringBuilder whereClause = new StringBuilder();
+        if(filters == null || filters.isEmpty()) {
+            return null;
+        }
         for (int i = 0; i < filters.size(); i++) {
             if (i > 0) {
                 String logicalOp = filters.get(i).getLogicalOperator();
@@ -235,73 +233,49 @@ public class PostgreQueryBuilder {
         
         String condition = PostgreFilterBuilder.getFilter(parameters, filterSpec);
         sql.append(fieldRef).append(condition);
+    }
 
-
-        // Build condition based on operator
-        // switch (filter.getOperator()) {
-        //     case "EQ":
-        //         sql.append(fieldRef).append(" = :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "NE":
-        //         sql.append(fieldRef).append(" != :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "GT":
-        //         sql.append(fieldRef).append(" > :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "GE":
-        //         sql.append(fieldRef).append(" >= :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "LT":
-        //         sql.append(fieldRef).append(" < :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "LE":
-        //         sql.append(fieldRef).append(" <= :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "IN":
-        //         sql.append(fieldRef).append(" IN (:").append(paramName).append(")");
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "NOT_IN":
-        //         sql.append(fieldRef).append(" NOT IN (:").append(paramName).append(")");
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "LIKE":
-        //         sql.append(fieldRef).append(" LIKE :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "ILIKE":
-        //         sql.append(fieldRef).append(" ILIKE :").append(paramName);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         break;
-        //     case "IS_NULL":
-        //         sql.append(fieldRef).append(" IS NULL");
-        //         break;
-        //     case "IS_NOT_NULL":
-        //         sql.append(fieldRef).append(" IS NOT NULL");
-        //         break;
-        //     case "BETWEEN":
-        //         String paramName2 = "param_" + (parameters.size() + 1);
-        //         sql.append(fieldRef).append(" BETWEEN :").append(paramName)
-        //            .append(" AND :").append(paramName2);
-        //         parameters.put(paramName, resolvedFilterValue.getFirst());
-        //         parameters.put(paramName2, resolvedFilterValue.getSecond());
-        //         break;
-        //     case "EXISTS":
-        //     case "NOT_EXISTS":
-        //         // EXISTS/NOT EXISTS with subquery support
-        //         sql.append(filter.getOperator().equals("EXISTS") ? "EXISTS" : "NOT EXISTS");
-        //         sql.append(" (SELECT 1 FROM ").append(filter.getField()).append(")");
-        //         // Note: Full EXISTS/NOT EXISTS implementation would require subquery context
-        //         break;
-        //     default:
-        //         throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
-        // }
+    private String buildSort(QueryContext context, Map<String, SortCriteria> sorts){
+        StringBuilder sortClause = new StringBuilder();
+        if(sorts == null || sorts.isEmpty()) {
+            return null;
+        }
+        sortClause.append(" ORDER BY ");
+        int i = 0;
+        for (Map.Entry<String, SortCriteria> entry : sorts.entrySet()) {
+            String sortField = entry.getKey();
+            SortCriteria sort = entry.getValue();
+            if (i > 0) {
+                sortClause.append(", ");
+            }
+            String[] parts = sortField.split("\\.", 2);
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("Invalid field path: " + sortField);
+            }
+            String objectCode = parts[0];
+            String fieldCode = parts[1];
+            String alias = context.getObjectAliases().get(objectCode);
+            if (alias == null) {
+                throw new IllegalStateException("Object alias not found for: " + objectCode);
+            }
+            ObjectMeta objectMeta = context.getObjectMetaPlan().get(objectCode);
+            FieldMeta fieldMeta = getFieldMeta(objectMeta, fieldCode);
+            String fieldColumnName = fieldMeta.getColumnName();
+            sortClause.append(alias).append(".").append(fieldColumnName)
+                .append(" ").append(sort.getDir().toUpperCase());
+            
+            // Handle nulls ordering
+            if (sort.getNulls() != null && !sort.getNulls().isEmpty()) {
+                String nullsHandling = sort.getNulls().toUpperCase();
+                if ("first".equals(nullsHandling)) {
+                    sortClause.append(" NULLS FIRST");
+                } else if ("last".equals(nullsHandling)) {
+                    sortClause.append(" NULLS LAST");
+                }
+            }
+            i++;
+        }
+        return sortClause.toString();
     }
 
     private FieldMeta getFieldMeta(ObjectMeta objectMeta, String fieldCode) {

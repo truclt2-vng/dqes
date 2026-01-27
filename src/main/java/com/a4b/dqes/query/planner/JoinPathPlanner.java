@@ -56,7 +56,7 @@ public class JoinPathPlanner {
             if (objectCode.equals(rootObjectCode)) {
                 continue;
             }
-            List<PathRow> pathRows = planPathsFromRoot(planReq.getConnId(), rootObjectCode, DEFAULT_MAX_PATH_DEPTH);
+            List<PathRow> pathRows = planPathsFromRoot(planReq.getConnId(), rootObjectCode);
             PathRow bestPath = bestPathByTargetObject(objectCode, pathRows);
             if (bestPath == null) {
                 log.warn("No path found from root object {} to required object {}", rootObjectCode, objectCode);
@@ -78,6 +78,7 @@ public class JoinPathPlanner {
                     .relationInfo(relationInfo)
                     .joinTable(joinObject.getDbTable())
                     .runtimeAlias(runtimeJoinAlias)
+                    .relationType(relationInfo.getRelationType())
                     .joinOrder(joinOrder++)
                     .build()
                 );
@@ -147,9 +148,7 @@ public class JoinPathPlanner {
                 .orElse(null);
     }
 
-    public List<PathRow> planPathsFromRoot(long connId, String fromObjectCode, 
-        Integer maxDepth // nullable -> default in DB
-    ) {
+    public List<PathRow> planPathsFromRoot(long connId, String fromObjectCode) {
         String sql = """
             SELECT
                 rel_code,
@@ -159,14 +158,14 @@ public class JoinPathPlanner {
                 hop_count,
                 total_weight,
                 path_relation_codes
-            FROM dqes.fn_best_paths_from_object(:connId, :fromObjectCode, :maxDepth)
+            FROM dqes.fn_best_paths_from_object_v2(:connId, :fromObjectCode)
             order by hop_count asc
             """;
 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("connId", connId)
                 .addValue("fromObjectCode", fromObjectCode)
-                .addValue("maxDepth", maxDepth);
+                ;
 
         return dqesJdbc.query(sql, params, PathRowMapper.INSTANCE);
     }

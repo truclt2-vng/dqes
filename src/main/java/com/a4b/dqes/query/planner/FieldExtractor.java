@@ -10,9 +10,18 @@ import java.util.Set;
 
 import com.a4b.dqes.query.dto.FilterCriteria;
 
-public class FilterFieldExtractor {
+public class FieldExtractor {
 
-    public static Set<String> extractFields(List<FilterCriteria> filters) {
+    public static List<FieldKey> extractSelectFields(List<String> selectFields) {
+       if(selectFields == null || selectFields.isEmpty()) {
+           return List.of();
+       }
+         return selectFields.stream()
+                .map(DotPath::parse)
+                .toList();
+    }
+
+    public static Set<String> extractFilterFields(List<FilterCriteria> filters) {
         Set<String> result = new HashSet<>();
         if (filters == null || filters.isEmpty()) {
             return result;

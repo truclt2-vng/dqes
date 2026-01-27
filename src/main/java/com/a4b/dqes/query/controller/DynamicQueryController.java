@@ -17,17 +17,15 @@ import org.springframework.web.bind.annotation.*;
  * Provides endpoint for executing dynamic queries with multi-hop joins
  */
 @RestController
-@RequestMapping("/api/v1/dynamic-query")
+@RequestMapping("/api/v1/dynamic")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Dynamic Query", description = "Dynamic Query Engine API")
 public class DynamicQueryController {
     
-    private final DynamicQueryExecutionService queryExecutionService;
-
     private final DynamicQueryEngineService dynamicQueryEngineService;
     
-    @PostMapping("/execute")
+    @PostMapping("/query/{datasource}/{objectCode}")
     @Operation(
         summary = "Execute Dynamic Query",
         description = "Execute a dynamic query with support for multi-hop joins, " +
@@ -35,7 +33,9 @@ public class DynamicQueryController {
                      "The query engine automatically resolves relationships between objects " +
                      "and generates optimized SQL with named parameters."
     )
-    public ResponseEntity<DynamicQueryResult> executeQuery(
+    public ResponseEntity<DynamicQueryResult> query(
+        @PathVariable("datasource") String datasource,
+        @PathVariable("objectCode") String objectCode,
         @Valid @RequestBody DynamicQueryRequest request
     ) {
         log.info("Executing dynamic query for tenant={}, app={}, root={}",

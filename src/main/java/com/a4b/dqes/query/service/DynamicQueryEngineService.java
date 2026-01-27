@@ -31,7 +31,7 @@ import com.a4b.dqes.query.dto.DynamicQueryResult;
 import com.a4b.dqes.query.model.QueryContext;
 import com.a4b.dqes.query.planner.DotPath;
 import com.a4b.dqes.query.planner.FieldKey;
-import com.a4b.dqes.query.planner.FilterFieldExtractor;
+import com.a4b.dqes.query.planner.FieldExtractor;
 import com.a4b.dqes.query.planner.JoinPathPlanner;
 import com.a4b.dqes.query.planner.PlanRequest;
 import com.a4b.dqes.query.planner.Planner;
@@ -115,9 +115,9 @@ public class DynamicQueryEngineService {
             }
 
             // Parse dot-paths
-            List<FieldKey> selectFields = request.getSelectFields().stream().map(DotPath::parse).toList();
-            
-            Set<String> filterFieldkeys = FilterFieldExtractor.extractFields(request.getFilters());
+            List<FieldKey> selectFields = FieldExtractor.extractSelectFields(request.getSelectFields());
+
+            Set<String> filterFieldkeys = FieldExtractor.extractFilterFields(request.getFilters());
             List<FieldKey> filterFields = filterFieldkeys.stream().map(DotPath::parse).toList();
 
             // Objects
@@ -130,7 +130,6 @@ public class DynamicQueryEngineService {
             requiredObjects.addAll(filterObjects);
 
             PlanRequest planReq = new PlanRequest(dbconnId, rootObject, selectFields, filterFields);
-            // Graph graph = new Graph(allRelationInfos);
 
             final QueryContext context = QueryContext.builder()
                 .tenantCode(tenant)
@@ -141,6 +140,10 @@ public class DynamicQueryEngineService {
                 .allObjectMetaMap(allObjectMetaMap)
                 .allRelationInfos(allRelationInfos)
                 .allJoinKeys(allRelationJoinKeys)
+                .distinct(request.getDistinct())
+                .countOnly(request.getCountOnly())
+                .offset(request.getOffset())
+                .limit(request.getLimit())
                 .build();
 
             Planner planner = joinPathPlanner.plan(planReq, context);
@@ -156,13 +159,11 @@ public class DynamicQueryEngineService {
             Integer limit = null;
 
 
-            SqlQuery query = queryBuilder.buildQuery(context, planner, planReq, request.getFilters(), request.getOffset(), request.getLimit(), request.getCountOnly());
+            SqlQuery query = queryBuilder.buildQuery(context, planner, planReq, request.getFilters(), request.getSorts());
             executedSql = query.getSql();
             executedParams = query.getParameters();
 
-            final NamedParameterJdbcTemplate targetJdbcTemplate = dynamicDataSourceService.getJdbcTemplate(
-                tenant, app, request.getDbconnId()
-            );
+            final NamedParameterJdbcTemplate targetJdbcTemplate = dynamicDataSourceService.getJdbcTemplate(tenant, app, request.getDbconnId());
             final boolean countOnly = Boolean.TRUE.equals(request.getCountOnly());
             if (countOnly) {
                 totalCount = targetJdbcTemplate.queryForObject(executedSql, executedParams, Long.class);

@@ -50,8 +50,13 @@ public final class PostgreFilterBuilder {
         //FTS operators
         operatorMap.put("FTS", " @@ to_tsquery(%s)");
         operatorMap.put("PHFTS", " @@ phraseto_tsquery(%s)");
+        //DateTime operators yearsAgo, monthsAgo, daysAgo
+        operatorMap.put("YEARS_AGO", "(now() - INTERVAL '%d years')");
+        operatorMap.put("MONTHS_AGO", "(now() - INTERVAL '%d months')");
+        operatorMap.put("DAYS_AGO", "(now() - INTERVAL '%d days')");
 
         // DataType Operator Mapping support 
+        
         dataTypeOperator.put("STRING", List.of("EQ", "NE", "LIKE", "ILIKE", "IN", "NOT_IN", "IS_NULL", "IS_NOT_NULL"));
         dataTypeOperator.put("UUID", List.of("EQ", "NE", "IN", "NOT_IN", "IS_NULL", "IS_NOT_NULL"));
         dataTypeOperator.put("TSVECTOR", List.of("FTS", "PHFTS"));

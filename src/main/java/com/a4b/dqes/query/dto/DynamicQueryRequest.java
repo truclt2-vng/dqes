@@ -11,6 +11,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Request DTO for dynamic queries
@@ -40,16 +41,20 @@ public class DynamicQueryRequest {
     private List<FilterCriteria> filters;
     
     @Valid
-    private List<SortCriteria> sorts;
+    private Map<String, SortCriteria> sorts;
     
     @Min(value = 0, message = "Offset must be non-negative")
+    @Builder.Default
     private Integer offset = 0;
     
     @Min(value = 1, message = "Limit must be at least 1")
     @Max(value = 100, message = "Limit cannot exceed 100")
-    private Integer limit = 100;
+    @Builder.Default
+    private Integer limit = 50;
     
+    @Builder.Default
     private Boolean distinct = false;
     
+    @Builder.Default
     private Boolean countOnly = false;
 }
