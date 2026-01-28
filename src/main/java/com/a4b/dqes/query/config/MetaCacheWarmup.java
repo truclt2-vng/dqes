@@ -11,8 +11,10 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
-import com.a4b.dqes.repository.jpa.FieldMetaRepository;
-import com.a4b.dqes.repository.jpa.ObjectMetaRepository;
+import com.a4b.dqes.query.service.DbSchemaCacheService;
+import com.a4b.dqes.repository.jpa.FieldMetaJpaRepository;
+import com.a4b.dqes.repository.jpa.ObjectMetaJpaRepository;
+import com.a4b.dqes.repository.jpa.QrytbRelationJoinConditionJpaRepository;
 import com.a4b.dqes.repository.jpa.RelationInfoRepository;
 import com.a4b.dqes.repository.jpa.RelationJoinKeyRepository;
 
@@ -21,20 +23,25 @@ import lombok.RequiredArgsConstructor;
 @Component
 @RequiredArgsConstructor
 public class MetaCacheWarmup implements ApplicationRunner {
-    private final ObjectMetaRepository objectMetaRepository;
-    private final FieldMetaRepository fieldMetaRepository;
+    private final DbSchemaCacheService dbSchemaCacheService;
+    private final ObjectMetaJpaRepository objectMetaRepository;
+    private final FieldMetaJpaRepository fieldMetaRepository;
     private final RelationInfoRepository relationInfoRepository;
     private final RelationJoinKeyRepository relationJoinKeyRepository;
+    private final QrytbRelationJoinConditionJpaRepository relationJoinConditionRepository;
 
     @Override
     public void run(ApplicationArguments args) {
+        dbSchemaCacheService.loadDbSchemaCache("hcmcore");
+        // dbSchemaCacheService.loadDbSchemaCache("hcmcore");
         // gọi method có @Cacheable -> tự đổ vào cache
-        CompletableFuture.allOf(
-            warmObject(1),
-            warmField(1),
-            warmRelationInfo(1),
-            warmRelationJoinKey(1)
-        ).join();
+        // CompletableFuture.allOf(
+        //     warmObject(1),
+        //     warmField(1),
+        //     warmRelationInfo(1),
+        //     warmRelationJoinKey(1),
+        //     warmRelationJoinCondition(1)
+        // ).join();
     }
 
     @Async("applicationTaskExecutor")
@@ -58,6 +65,12 @@ public class MetaCacheWarmup implements ApplicationRunner {
     @Async("applicationTaskExecutor")
     public CompletableFuture<Void> warmRelationJoinKey(Integer dbconnId) {
         relationJoinKeyRepository.findByDbconnIdOrderBySeq(dbconnId);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Async("applicationTaskExecutor")
+    public CompletableFuture<Void> warmRelationJoinCondition(Integer dbconnId) {
+        relationJoinConditionRepository.findByDbconnIdOrderBySeq(dbconnId);
         return CompletableFuture.completedFuture(null);
     }
 }

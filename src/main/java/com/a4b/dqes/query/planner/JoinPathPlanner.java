@@ -4,7 +4,6 @@
  */
 package com.a4b.dqes.query.planner;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -15,8 +14,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import com.a4b.core.server.json.JSON;
-import com.a4b.dqes.domain.ObjectMeta;
-import com.a4b.dqes.domain.RelationInfo;
+import com.a4b.dqes.dto.schemacache.ObjectMetaRC;
+import com.a4b.dqes.dto.schemacache.RelationInfoRC;
 import com.a4b.dqes.query.config.PathRowMapper;
 import com.a4b.dqes.query.model.PathRow;
 import com.a4b.dqes.query.model.QueryContext;
@@ -64,11 +63,11 @@ public class JoinPathPlanner {
             }
 
             if(bestPath.hopCount() == 1){
-                RelationInfo relationInfo = context.getAllRelationInfos().stream()
+                RelationInfoRC relationInfo = context.getAllRelationInfos().stream()
                         .filter(ri -> ri.getCode().equals(bestPath.relCode()))
                         .findFirst()
                         .orElseThrow(() -> new IllegalStateException("RelationInfo not found for code: " + bestPath.relCode()));
-                ObjectMeta joinObject = context.getAllObjectMetaMap().get(relationInfo.getToObjectCode());
+                ObjectMetaRC joinObject = context.getAllObjectMetaMap().get(relationInfo.getToObjectCode());
                 String runtimeJoinAlias = context.getOrGenerateAlias(relationInfo.getJoinAlias(), relationInfo.getJoinAlias());
                 context.getObjectMetaPlan().put(relationInfo.getJoinAlias(), joinObject);
                 planner.addStep(JoinStep.builder()
@@ -88,11 +87,11 @@ public class JoinPathPlanner {
                 Set<String> requiredRelationCodes = requiredRelationCodes(objectCode, bestPath);
                 log.debug("Planned path from {} to {} via relations {}", rootObjectCode, objectCode, requiredRelationCodes);
                 for (String relationCode : requiredRelationCodes) {
-                    RelationInfo relationInfo = context.getAllRelationInfos().stream()
+                    RelationInfoRC relationInfo = context.getAllRelationInfos().stream()
                             .filter(ri -> ri.getCode().equals(relationCode))
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException("RelationInfo not found for code: " + relationCode));
-                    ObjectMeta joinObject = context.getAllObjectMetaMap().get(relationInfo.getToObjectCode());
+                    ObjectMetaRC joinObject = context.getAllObjectMetaMap().get(relationInfo.getToObjectCode());
                     String runtimeJoinAlias = context.getOrGenerateAlias(relationInfo.getJoinAlias(), relationInfo.getJoinAlias());
                     context.getObjectMetaPlan().put(relationInfo.getJoinAlias(), joinObject);
                     planner.addStep(JoinStep.builder()
@@ -102,6 +101,7 @@ public class JoinPathPlanner {
                         .relationInfo(relationInfo)
                         .joinTable(joinObject.getDbTable())
                         .runtimeAlias(runtimeJoinAlias)
+                        .relationType(relationInfo.getRelationType())
                         .joinOrder(joinOrder++)
                         .build()
                     );

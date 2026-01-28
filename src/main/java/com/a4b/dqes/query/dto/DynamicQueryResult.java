@@ -30,4 +30,5 @@ public class DynamicQueryResult {
     private Map<String, Object> parameters;
     
     private Long executionTimeMs;
+    private Long planningTimeMs;
 }

@@ -5,7 +5,7 @@
 package com.a4b.dqes.domain.generic;
 
 import java.io.Serializable;
-import java.time.OffsetDateTime;
+import java.util.Date;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -47,24 +47,18 @@ public abstract class ControlFieldEntity implements Serializable{
     private String makerId;
 
     @Column(name = "maker_date")
-    private OffsetDateTime makerDate;
-
-    @Column(name = "checker_id")
-    private String checkerId;
-
-    @Column(name = "checker_date")
-    private OffsetDateTime checkerDate;
+    private Date makerDate;
 
     @Column(name = "update_id")
     private String updateId;
 
     @Column(name = "update_date")
-    private OffsetDateTime updateDate;
+    private Date updateDate;
 
     @Column(name = "mod_no")
     @Version
     private Long modNo;
 
     @Column(name = "create_date")
-    private OffsetDateTime createDate = OffsetDateTime.now();
+    private Date createDate = new Date();
 }

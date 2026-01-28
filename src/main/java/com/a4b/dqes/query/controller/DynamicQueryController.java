@@ -1,16 +1,22 @@
 package com.a4b.dqes.query.controller;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.a4b.dqes.query.dto.DynamicQueryRequest;
 import com.a4b.dqes.query.dto.DynamicQueryResult;
 import com.a4b.dqes.query.service.DynamicQueryEngineService;
-import com.a4b.dqes.query.service.DynamicQueryExecutionService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 
 /**
  * REST Controller for Dynamic Query Engine
@@ -28,8 +34,7 @@ public class DynamicQueryController {
     @PostMapping("/query/{datasource}/{objectCode}")
     @Operation(
         summary = "Execute Dynamic Query",
-        description = "Execute a dynamic query with support for multi-hop joins, " +
-                     "EXISTS/NOT EXISTS operators, and Redis caching. " +
+        description = "Execute a dynamic query with support for multi-hop joins and Redis caching." +
                      "The query engine automatically resolves relationships between objects " +
                      "and generates optimized SQL with named parameters."
     )
@@ -38,15 +43,11 @@ public class DynamicQueryController {
         @PathVariable("objectCode") String objectCode,
         @Valid @RequestBody DynamicQueryRequest request
     ) {
-        log.info("Executing dynamic query for tenant={}, app={}, root={}",
-            request.getTenantCode(),
-            request.getAppCode(),
-            request.getRootObject()
-        );
+        log.info("Executing dynamic query for root={}",request.getRootObject());
         
         try {
-            // DynamicQueryResult result = queryExecutionService.executeQuery(request);
-            DynamicQueryResult result = dynamicQueryEngineService.executeQuery(request);
+            request.setRootObject(objectCode);
+            DynamicQueryResult result = dynamicQueryEngineService.executeQuery(request,datasource);
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             log.error("Invalid query request", e);

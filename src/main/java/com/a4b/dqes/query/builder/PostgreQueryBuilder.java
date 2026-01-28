@@ -10,9 +10,10 @@ import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
-import com.a4b.dqes.domain.FieldMeta;
-import com.a4b.dqes.domain.ObjectMeta;
-import com.a4b.dqes.domain.RelationJoinKey;
+import com.a4b.dqes.dto.schemacache.FieldMetaRC;
+import com.a4b.dqes.dto.schemacache.ObjectMetaRC;
+import com.a4b.dqes.dto.schemacache.RelationJoinConditionRC;
+import com.a4b.dqes.dto.schemacache.RelationJoinKeyRC;
 import com.a4b.dqes.query.builder.filter.FilterSpec;
 import com.a4b.dqes.query.builder.filter.PostgreFilterBuilder;
 import com.a4b.dqes.query.dto.FilterCriteria;
@@ -39,13 +40,19 @@ public class PostgreQueryBuilder {
         SqlQuery query = new SqlQuery();
         Map<String, Object> parameters = new HashMap<>();
 
-        String select = context.isCountOnly() ? buildSelectCount() : buildSelectFields(context, planRequest, context.isDistinct());
+        String select = context.isCountOnly() ? buildSelectCount() : buildSelectFields(context, planRequest, planner, context.isDistinct());
         String from = buildFromClause(context, planner);
         String where = buildWhereClause(parameters, filters, context, 0);
         StringBuilder sql = new StringBuilder(select).append(from);
 
         if(where != null && !where.isEmpty()) {
             sql.append(" WHERE ").append(where);
+        }
+
+        // Add GROUP BY clause if there are ONE_TO_MANY relations
+        String groupBy = buildGroupByClause(context, planRequest, planner);
+        if (groupBy != null && !groupBy.isEmpty()) {
+            sql.append(groupBy);
         }
 
         String orderBy = buildSort(context, sorts);
@@ -73,7 +80,7 @@ public class PostgreQueryBuilder {
         return "SELECT  COUNT(*) AS total ";
     }
 
-    private String buildSelectFields(QueryContext context, PlanRequest planRequest, boolean distinct) {
+    private String buildSelectFields(QueryContext context, PlanRequest planRequest, Planner planner, boolean distinct) {
         StringBuilder selectClause = new StringBuilder("SELECT " + (distinct ? "DISTINCT " : ""));
         boolean first = true;
 
@@ -82,22 +89,49 @@ public class PostgreQueryBuilder {
         for (Map.Entry<String, List<String>> entry : resolvedSelectField.entrySet()) {
             String objectCode = entry.getKey(); // objectCode
             List<String> fieldCodes = entry.getValue(); // list of fieldCodes
-            ObjectMeta objectMeta = context.getObjectMetaPlan().get(objectCode);
+            ObjectMetaRC objectMeta = context.getObjectMetaPlan().get(objectCode);
             boolean isRootObject = planRequest.getRootObject().getObjectCode().equals(objectCode);
             String runtimeAlias = context.getObjectAliases().get(objectCode);
+            
+            // Check if this is a ONE_TO_MANY relation
+            boolean isOneToMany = isOneToManyRelation(planner, objectCode);
+            
             if(isRootObject) {
                 for (String fieldCode : fieldCodes) {
                     if (!first) selectClause.append(", ");
                     first = false;
-                    FieldMeta fieldMeta = objectMeta.getFieldMetas().stream()
-                        .filter(fm -> fm.getFieldCode().equals(fieldCode))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("FieldMeta not found for fieldCode: " + fieldCode + " in object: " + objectCode));
+                    FieldMetaRC fieldMeta = getFieldMeta(objectMeta, fieldCode);
                     selectClause.append(buildSelectExpression(runtimeAlias, fieldMeta.getColumnName()));
                     selectClause.append(" AS ").append(fieldMeta.getAliasHint());
                 }
                 
-            }else{
+            } else if (isOneToMany) {
+                // For ONE_TO_MANY, use COALESCE with jsonb_agg and FILTER
+                if (!first) selectClause.append(", ");
+                first = false;
+                
+                // Find a primary key or unique field to filter null rows
+                String pkField = "id";
+                // String pkField = objectMeta.getPrimaryKey();
+                // FieldMeta pkField = objectMeta.getFieldMetas().stream()
+                //     .filter(fm -> Boolean.TRUE.equals(fm.getPrimaryKey()))
+                //     .findFirst()
+                //     .orElse(objectMeta.getFieldMetas().get(0)); // fallback to first field
+                
+                selectClause.append("COALESCE(jsonb_agg(jsonb_build_object(");
+                for (int i = 0; i < fieldCodes.size(); i++) {
+                    String fieldCode = fieldCodes.get(i);
+                    if (i > 0) selectClause.append(", ");
+                    FieldMetaRC fieldMeta = getFieldMeta(objectMeta, fieldCode);
+                    selectClause.append("'").append(fieldMeta.getAliasHint()).append("', ");
+                    selectClause.append(buildSelectExpression(runtimeAlias, fieldMeta.getColumnName()));
+                }
+                selectClause.append(")) FILTER (WHERE ")
+                    .append(runtimeAlias).append(".").append(pkField)
+                    .append(" IS NOT NULL), '[]'::jsonb) AS ").append(objectCode);
+                
+            } else {
+                // For ONE_TO_ONE, MANY_TO_ONE, build jsonb_build_object
                 if (!first) selectClause.append(", ");
                 first = false;
 
@@ -105,7 +139,7 @@ public class PostgreQueryBuilder {
                 for (int i = 0; i < fieldCodes.size(); i++) {
                     String fieldCode = fieldCodes.get(i);
                     if (i > 0) selectClause.append(", ");
-                    FieldMeta fieldMeta = getFieldMeta(objectMeta, fieldCode);
+                    FieldMetaRC fieldMeta = getFieldMeta(objectMeta, fieldCode);
                     selectClause.append("'").append(fieldMeta.getAliasHint()).append("', ");
                     selectClause.append(buildSelectExpression(runtimeAlias, fieldMeta.getColumnName()));
                 }
@@ -133,7 +167,8 @@ public class PostgreQueryBuilder {
                 runtimeFromAlias = context.getObjectAliases().get(step.getFromAlias());
             }
             String runtimeToAlias = context.getObjectAliases().get(step.getToObjectCode());
-            List<RelationJoinKey> joinKeys = step.getRelationInfo().getJoinKeys();
+            List<RelationJoinKeyRC> joinKeys = step.getRelationInfo().getJoinKeys();
+            List<RelationJoinConditionRC> joinConditions = step.getRelationInfo().getJoinConditions();
             fromClause.append(" ").append(joinType).append(" ")
                 .append(step.getJoinTable()).append(" ").append(runtimeToAlias)
                 .append(" ON ");
@@ -141,7 +176,7 @@ public class PostgreQueryBuilder {
             //build join conditions
             for (int i = 0; i < joinKeys.size(); i++) {
                 if (i > 0) fromClause.append(" AND ");
-                RelationJoinKey key = joinKeys.get(i);
+                RelationJoinKeyRC key = joinKeys.get(i);
                 
                 fromClause.append(runtimeFromAlias).append(".").append(key.getFromColumnName());
                 
@@ -153,6 +188,23 @@ public class PostgreQueryBuilder {
                 }
                 
                 fromClause.append(runtimeToAlias).append(".").append(key.getToColumnName());
+            }
+            // Append additional join conditions if any
+            for (RelationJoinConditionRC condition : joinConditions) {
+                fromClause.append(" AND ");
+                fromClause.append(runtimeToAlias).append(".").append(condition.getColumnName())
+                    .append(" ").append(condition.getOperator()).append(" ");
+                
+                // Handle different value types
+                if ("CONST".equals(condition.getValueType())) {
+                    fromClause.append(condition.getValueLiteral());
+                } else if ("PARAM".equals(condition.getValueType())) {
+                    fromClause.append(":").append(condition.getParamName());
+                } else if ("EXPR".equals(condition.getValueType())) {
+                    fromClause.append(condition.getValueLiteral());
+                } else {
+                    throw new IllegalArgumentException("Unsupported value type in join condition: " + condition.getValueType());
+                }
             }
                 
         });
@@ -216,9 +268,9 @@ public class PostgreQueryBuilder {
             throw new IllegalStateException("Object alias not found for: " + objectCode);
         }
 
-        ObjectMeta objectMeta = context.getObjectMetaPlan().get(objectCode);
+        ObjectMetaRC objectMeta = context.getObjectMetaPlan().get(objectCode);
         
-        FieldMeta fieldMeta = getFieldMeta(objectMeta, fieldCode);
+        FieldMetaRC fieldMeta = getFieldMeta(objectMeta, fieldCode);
         String fieldColumnName = fieldMeta.getColumnName();
         String fieldRef = alias + "." + fieldColumnName;
         String dataType = fieldMeta.getDataType();
@@ -258,8 +310,8 @@ public class PostgreQueryBuilder {
             if (alias == null) {
                 throw new IllegalStateException("Object alias not found for: " + objectCode);
             }
-            ObjectMeta objectMeta = context.getObjectMetaPlan().get(objectCode);
-            FieldMeta fieldMeta = getFieldMeta(objectMeta, fieldCode);
+            ObjectMetaRC objectMeta = context.getObjectMetaPlan().get(objectCode);
+            FieldMetaRC fieldMeta = getFieldMeta(objectMeta, fieldCode);
             String fieldColumnName = fieldMeta.getColumnName();
             sortClause.append(alias).append(".").append(fieldColumnName)
                 .append(" ").append(sort.getDir().toUpperCase());
@@ -278,7 +330,7 @@ public class PostgreQueryBuilder {
         return sortClause.toString();
     }
 
-    private FieldMeta getFieldMeta(ObjectMeta objectMeta, String fieldCode) {
+    private FieldMetaRC getFieldMeta(ObjectMetaRC objectMeta, String fieldCode) {
         return objectMeta.getFieldMetas().stream()
             .filter(fm -> fm.getFieldCode().equals(fieldCode))
             .findFirst()
@@ -296,5 +348,66 @@ public class PostgreQueryBuilder {
 
     private String buildSelectExpression(String alias, String columnName) {
         return alias + "." + columnName;
+    }
+
+    /**
+     * Check if the given object code is part of a ONE_TO_MANY relation
+     */
+    private boolean isOneToManyRelation(Planner planner, String objectCode) {
+        if (planner.getJoinSteps() == null) {
+            return false;
+        }
+        return planner.getJoinSteps().stream()
+            .anyMatch(step -> step.getToObjectCode().equals(objectCode) 
+                && "ONE_TO_MANY".equals(step.getRelationType()));
+    }
+
+    /**
+     * Check if planner contains any ONE_TO_MANY relations
+     */
+    private boolean hasOneToManyRelation(Planner planner) {
+        if (planner.getJoinSteps() == null) {
+            return false;
+        }
+        return planner.getJoinSteps().stream()
+            .anyMatch(step -> "ONE_TO_MANY".equals(step.getRelationType()));
+    }
+
+    /**
+     * Build GROUP BY clause for queries with ONE_TO_MANY relations
+     * Groups by all root object fields and non-aggregated related object fields
+     */
+    private String buildGroupByClause(QueryContext context, PlanRequest planRequest, Planner planner) {
+        if (!hasOneToManyRelation(planner)) {
+            return null;
+        }
+
+        StringBuilder groupByClause = new StringBuilder(" GROUP BY ");
+        boolean first = true;
+
+        Map<String, List<String>> resolvedSelectField = resolvedSelectField(planRequest.getSelectFields());
+
+        for (Map.Entry<String, List<String>> entry : resolvedSelectField.entrySet()) {
+            String objectCode = entry.getKey();
+            List<String> fieldCodes = entry.getValue();
+            
+            // Skip ONE_TO_MANY relations in GROUP BY (they're aggregated)
+            if (isOneToManyRelation(planner, objectCode)) {
+                continue;
+            }
+
+            ObjectMetaRC objectMeta = context.getObjectMetaPlan().get(objectCode);
+            String runtimeAlias = context.getObjectAliases().get(objectCode);
+            
+            for (String fieldCode : fieldCodes) {
+                if (!first) groupByClause.append(", ");
+                first = false;
+                
+                FieldMetaRC fieldMeta = getFieldMeta(objectMeta, fieldCode);
+                groupByClause.append(runtimeAlias).append(".").append(fieldMeta.getColumnName());
+            }
+        }
+
+        return groupByClause.toString();
     }
 }

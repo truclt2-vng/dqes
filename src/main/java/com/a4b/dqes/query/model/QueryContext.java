@@ -3,12 +3,13 @@ package com.a4b.dqes.query.model;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.a4b.dqes.domain.ObjectMeta;
-import com.a4b.dqes.domain.RelationInfo;
-import com.a4b.dqes.domain.RelationJoinKey;
+import com.a4b.dqes.domain.QrytbObjectMeta;
+import com.a4b.dqes.domain.QrytbRelationInfo;
+import com.a4b.dqes.dto.schemacache.ObjectMetaRC;
+import com.a4b.dqes.dto.schemacache.RelationInfoRC;
+import com.a4b.dqes.query.planner.FieldKey;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,30 +37,24 @@ public class QueryContext {
     private Integer limit;
     private boolean countOnly;
 
+    private List<FieldKey> selectFields = new ArrayList<>();
+    private List<FieldKey> filterFields = new ArrayList<>();
+
     @Builder.Default
-    private Map<String, ObjectMeta> allObjectMetaMap = new ConcurrentHashMap<>();
+    private Map<String, ObjectMetaRC> allObjectMetaMap = new ConcurrentHashMap<>();
     
     @Builder.Default
     private Map<String, String> objectAliases = new ConcurrentHashMap<>(); // objectCode -> alias
 
     @Builder.Default
-    private Map<String, ObjectMeta> objectMetaPlan = new ConcurrentHashMap<>(); // objectCode -> alias
+    private Map<String, ObjectMetaRC> objectMetaPlan = new ConcurrentHashMap<>();
     
     @Builder.Default
     private Map<String, String> objectTables = new ConcurrentHashMap<>(); // objectCode -> table name
     
     @Builder.Default
-    private Set<String> joinedObjects = ConcurrentHashMap.newKeySet();
-    
-    @Builder.Default
-    private Map<String, RelationPath> relationPaths = new ConcurrentHashMap<>(); // objectCode -> path from root
+    private List<RelationInfoRC> allRelationInfos = new ArrayList<>();
 
-    @Builder.Default
-    private List<RelationInfo> allRelationInfos = new ArrayList<>();
-
-    @Builder.Default
-    List<RelationJoinKey> allJoinKeys = new ArrayList<>();
-    
     @Builder.Default
     private int aliasCounter = 0;
     
@@ -72,33 +67,5 @@ public class QueryContext {
             String alias = baseAlias + (aliasCounter++);
             return alias;
         });
-    }
-    
-    /**
-     * Check if an object has been joined
-     */
-    public boolean isJoined(String objectCode) {
-        return joinedObjects.contains(objectCode);
-    }
-    
-    /**
-     * Mark an object as joined
-     */
-    public void markJoined(String objectCode) {
-        joinedObjects.add(objectCode);
-    }
-    
-    /**
-     * Register table name for an object
-     */
-    public void registerObjectTable(String objectCode, String tableName) {
-        objectTables.put(objectCode, tableName);
-    }
-    
-    /**
-     * Get table name for an object
-     */
-    public String getObjectTable(String objectCode) {
-        return objectTables.getOrDefault(objectCode, "dqes." + objectCode);
     }
 }

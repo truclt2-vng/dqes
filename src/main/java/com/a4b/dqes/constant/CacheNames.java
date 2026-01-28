@@ -9,4 +9,6 @@ public interface CacheNames {
 
     String FIELD_SECURITY = "fieldSecurity";
     String USER_PROFILE = "userProfile";
+    String DB_CONN_INFO = "dbconnInfoCache";
+    String DB_SCHEMA_CACHE = "dbSchemaCache";
 }

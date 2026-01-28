@@ -17,28 +17,31 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.a4b.dqes.crypto.CryptoService;
+import com.a4b.dqes.constant.CacheNames;
 import com.a4b.dqes.datasource.DynamicDataSourceService;
-import com.a4b.dqes.dto.record.DbConnInfo;
 import com.a4b.dqes.dto.record.MetaRefreshStats;
+import com.a4b.dqes.dto.schemacache.DbConnInfoDto;
+import com.a4b.dqes.service.CfgtbDbconnInfoService;
 import com.google.common.base.CaseFormat;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-public class MetadataRefreshService {
+public class MetadataService {
 
+    private final CfgtbDbconnInfoService dbconnInfoService; 
     private final DynamicDataSourceService dataSourceService;
     private final NamedParameterJdbcTemplate dqesJdbc;
     private final JdbcTemplate dqesPlainJdbc; // dùng batchUpdate nhanh hơn
-    private final CryptoService cryptoService;
 
     private static final int BATCH_SIZE = 500;
 
@@ -59,14 +62,15 @@ public class MetadataRefreshService {
             String tenant, String app, String objectCode,
             String fieldCode, String fieldLabel,
             String columnName, String aliasHint, String dataType,
-            boolean notNull, String description, String fts
+            boolean notNull, String description, String fts, boolean isPrimary
     ) {}
 
     private record RelationRow(
             int dbconnId, String tenant, String app,
             String code, String fromObject, String toObject,
             String relationType,  // MANY_TO_ONE or ONE_TO_MANY
-            String joinAlias
+            String joinAlias,
+            String joinType
     ) {}
     
     private record JoinKeyRow(
@@ -107,77 +111,57 @@ public class MetadataRefreshService {
     }
 
     @Transactional
-    public MetaRefreshStats refreshByConnCode(String tenantCode, String appCode, String connCode) throws Exception {
-        DbConnInfo conn = dataSourceService.loadConnectionInfo(tenantCode, appCode, connCode);
-        String passwordPlain = cryptoService.decrypt(conn.passwordEnc(), conn.passwordAlg());
-        DataSource targetDs = dataSourceService.buildDataSource(conn, passwordPlain);
+    @Caching(evict = {@CacheEvict(value = CacheNames.DB_SCHEMA_CACHE, key = "#connCode")})
+    public MetaRefreshStats refreshByConnCode(String connCode) throws Exception {
+        DbConnInfoDto conn = dbconnInfoService.getDbConnInfoByCode(connCode);
+        DataSource targetDs = dataSourceService.buildDataSource(conn);
         Stats stats = new Stats();
-
+        
         try {
-            purgeExisting(conn.id(), tenantCode, appCode);
-            scanAndPersist(targetDs, conn, tenantCode, appCode, stats);
+            purgeExisting(conn.getId().intValue());
+            scanAndPersist(targetDs, conn, stats);
         } finally {
             if (targetDs instanceof com.zaxxer.hikari.HikariDataSource hk) hk.close();
         }
-
-                // 3) optional: refresh path cache
-        // dqesJdbc.getJdbcTemplate().execute(
-        //         "CALL dqes.refresh_qry_object_paths(?, ?, ?, ?)",
-        //         (PreparedStatementCallback<Void>) ps -> {
-        //             ps.setString(1, tenantCode);
-        //             ps.setString(2, appCode);
-        //             ps.setInt(3, conn.id());
-        //             ps.setInt(4, 6);
-        //             ps.execute();
-        //             return null;
-        //         });
-
         return stats.toRecord();
     }
 
-    private void purgeExisting(int dbconnId, String tenantCode, String appCode) {
+    private void purgeExisting(Integer dbconnId) {
         // delete join keys -> relations -> fields -> objects
         dqesJdbc.update("""
                 DELETE FROM dqes.qrytb_relation_join_key
-                WHERE relation_id IN (
-                  SELECT id FROM dqes.qrytb_relation_info
-                  WHERE tenant_code=:tenant AND app_code=:app
-                    AND dbconn_id = :dbconnId
-                )
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+                WHERE dbconn_id = :dbconnId
+                """, Map.of("dbconnId", dbconnId));
 
         dqesJdbc.update("""
                 DELETE FROM dqes.qrytb_relation_info
-                WHERE tenant_code=:tenant AND app_code=:app
-                  AND dbconn_id = :dbconnId
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+                WHERE dbconn_id = :dbconnId
+                """, Map.of("dbconnId", dbconnId));
 
         dqesJdbc.update("""
                 DELETE FROM dqes.qrytb_field_meta
-                WHERE tenant_code=:tenant AND app_code=:app
-                  AND object_code IN (
-                    SELECT object_code FROM dqes.qrytb_object_meta
-                    WHERE tenant_code=:tenant AND app_code=:app AND dbconn_id=:dbconnId
-                  )
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+                WHERE dbconn_id = :dbconnId
+                """, Map.of("dbconnId", dbconnId));
 
         dqesJdbc.update("""
                 DELETE FROM dqes.qrytb_object_meta
-                WHERE tenant_code=:tenant AND app_code=:app AND dbconn_id=:dbconnId
-                """, Map.of("tenant", tenantCode, "app", appCode, "dbconnId", dbconnId));
+                WHERE dbconn_id=:dbconnId
+                """, Map.of("dbconnId", dbconnId));
     }
 
-    private void scanAndPersist(DataSource targetDs, DbConnInfo conn,
-                                String tenantCode, String appCode, Stats stats) throws Exception {
+    private void scanAndPersist(DataSource targetDs, DbConnInfoDto conn,Stats stats) throws Exception {
         List<ObjectRow> objects = new ArrayList<>();
         List<FieldRow> fields = new ArrayList<>();
         List<RelationRow> relations = new ArrayList<>();
         List<PendingJoinKey> pendingJoinKeys = new ArrayList<>(); // relationCode + keys
         List<String> tables = new ArrayList<>();
 
+        String tenantCode = conn.getTenantCode();
+        String appCode    = conn.getAppCode();
+
         try (Connection cx = targetDs.getConnection()) {
             DatabaseMetaData md = cx.getMetaData();
-            String targetSchema = conn.dbSchema();
+            String targetSchema = conn.getDbSchema();
             String[] types = new String[] { "TABLE", "VIEW", "MATERIALIZED VIEW" };
 
             Map<String, String> objectCodeByTableKey = new HashMap<>();
@@ -197,7 +181,7 @@ public class MetadataRefreshService {
                     String dbTable = schema + "." + name;
 
                     objects.add(new ObjectRow(
-                            conn.id(), tenantCode, appCode,
+                            conn.getId().intValue(), tenantCode, appCode,
                             objectCode, objectName, dbTable, aliasHint(name),
                             "Auto-generated from " + type,
                             objectCode + " " + name + " " + dbTable
@@ -238,14 +222,29 @@ public class MetadataRefreshService {
                         String dataTypeCode = mapToDqesDataType(jdbcType, typeName);
                         String fieldCode = toFieldCode(colName);
                         String aliasHint = aliasHintColumn(colName);
+                        //how detect primary key
+                        boolean isPrimary = false;
+                        if("id".equals(colName)){
+                            isPrimary = true;
+                        }
+                        // try (ResultSet pk =  md.getPrimaryKeys(cx.getCatalog(), schema, table)) {
+                        //     while (pk.next()) {
+                        //         String pkColName = pk.getString("COLUMN_NAME");
+                        //         if(colName.equals(pkColName)){
+                        //             isPrimary = true;
+                        //             break;
+                        //         }
+                        //     }
+                        // }
 
-                        fields.add(new FieldRow(conn.id(),
+                        fields.add(new FieldRow(conn.getId().intValue(),
                                 tenantCode, appCode, objectCode,
                                 fieldCode, humanize(colName), 
                                 colName,aliasHint, dataTypeCode,
                                 nullable != DatabaseMetaData.columnNullable,
                                 remarks,
-                                objectCode + " " + fieldCode + " " + colName + " " + colName
+                                null,
+                                isPrimary
                         ));
                     }
                 }
@@ -279,6 +278,8 @@ public class MetadataRefreshService {
                                 .add(new FkRow(pkSchema, pkTable, pkCol, fkSchema, fkTable, fkCol, keySeq));
                     }
 
+                    String joinType = "LEFT JOIN"; 
+
                     for (var e : byFk.entrySet()) {
                         String fkName = e.getKey();
                         List<FkRow> rows = e.getValue();
@@ -292,8 +293,9 @@ public class MetadataRefreshService {
                         String toObject   = objectCodeByTableKey.get(toKey);
                         if (fromObject == null || toObject == null) continue;
 
-                        String relCode = ("REL_" + fromObject + "_" + toObject + "_" + fkName)
-                                .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                        // String relCode = ("REL_" + fromObject + "_" + toObject + "_" + fkName)
+                        //         .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                        String relCode = ("REL_" + fromObject + "_" + toObject).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
 
                         String relationType = "MANY_TO_ONE";
                         // Optional: detect ONE_TO_ONE
@@ -302,19 +304,19 @@ public class MetadataRefreshService {
                         }
 
                         // MANY_TO_ONE: FK table -> PK table (Employee -> Department)
-                        relations.add(new RelationRow(conn.id(), tenantCode, appCode, 
-                            relCode, fromObject, toObject, relationType, joinAlias(rows)));
+                        relations.add(new RelationRow(conn.getId().intValue(), tenantCode, appCode, 
+                            relCode, fromObject, toObject, relationType, joinAlias(rows), joinType));
 
                         // defer join keys until we have relation_id
                         pendingJoinKeys.add(PendingJoinKey.of(relCode, rows));
                         
                         if(allowOneToManyRelations){
                             // ONE_TO_MANY: reverse relation (Department -> Employee)
-                            String reverseRelCode = ("REL_" + toObject + "_" + fromObject + "_REV_" + fkName)
-                                    .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                            String reverseRelCode = ("REL_REV_" + toObject + "_" + fromObject).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
                             
-                            relations.add(new RelationRow(conn.id(), tenantCode, appCode,
-                                reverseRelCode, toObject, fromObject, "ONE_TO_MANY", joinAlias(rows)));
+                            String joinAlias = joinAlias(rows)+"List";
+                            relations.add(new RelationRow(conn.getId().intValue(), tenantCode, appCode,
+                                reverseRelCode, toObject, fromObject, "ONE_TO_MANY", joinAlias, joinType));
                             
                             // Reverse join keys (swap from/to)
                             List<FkRow> reverseRows = new ArrayList<>();
@@ -337,7 +339,7 @@ public class MetadataRefreshService {
             stats.relations += relations.size();
 
             // phase B: query id map by code
-            Map<String, Integer> relIdByCode = fetchRelationIdsByCodes(tenantCode, appCode, conn.id(),
+            Map<String, Integer> relIdByCode = fetchRelationIdsByCodes(tenantCode, appCode, conn.getId().intValue(),
                     relations.stream().map(RelationRow::code).toList());
 
             // phase C: build join keys rows -> batch insert
@@ -352,7 +354,7 @@ public class MetadataRefreshService {
                             relId, seq++,
                             r.fkCol, "=", r.pkCol,
                             false,
-                            conn.id(), tenantCode, appCode
+                            conn.getId().intValue(), tenantCode, appCode
                     ));
                 }
             }
@@ -459,9 +461,9 @@ public class MetadataRefreshService {
             INSERT INTO dqes.qrytb_field_meta
               (object_code, field_code, field_label, alias_hint, mapping_type, column_name,
                data_type, not_null, allow_select, allow_filter, allow_sort,
-               description, fts_string_value, tenant_code, app_code, dbconn_id)
+               description, fts_string_value, tenant_code, app_code, dbconn_id,is_primary)
             VALUES
-              (?, ?, ?, ?, ?, ?, ?, ?, true, true, true, ?, ?, ?, ?, ?)
+              (?, ?, ?, ?, ?, ?, ?, ?, true, true, true, ?, ?, ?, ?, ?, ?)
             ON CONFLICT ( object_code, field_code)
             DO UPDATE SET
                 field_label      = EXCLUDED.field_label,
@@ -474,7 +476,8 @@ public class MetadataRefreshService {
                 allow_filter     = TRUE,
                 allow_sort       = TRUE,
                 description      = EXCLUDED.description,
-                fts_string_value = EXCLUDED.fts_string_value
+                fts_string_value = EXCLUDED.fts_string_value,
+                is_primary       = EXCLUDED.is_primary
             """;
         String mappingType = "COLUMN";
         batch(sql, rows, (ps, r) -> {
@@ -491,6 +494,7 @@ public class MetadataRefreshService {
             ps.setString(11, r.tenant());
             ps.setString(12, r.app());
             ps.setInt(13, r.dbconnId());
+            ps.setBoolean(14, r.isPrimary());
         });
     }
 
@@ -502,7 +506,7 @@ public class MetadataRefreshService {
               (code, from_object_code, to_object_code, relation_type, join_alias, join_type, filter_mode,
                path_weight, relation_props, dbconn_id, tenant_code, app_code)
             VALUES
-              (?, ?, ?, ?, ?,'LEFT', 'AUTO',
+              (?, ?, ?, ?, ?, ?, 'AUTO',
                10, jsonb_build_object('dbconn_id', ?), ?, ?, ?)
             ON CONFLICT (code)
             DO UPDATE SET
@@ -510,7 +514,7 @@ public class MetadataRefreshService {
                 to_object_code   = EXCLUDED.to_object_code,
                 relation_type    = EXCLUDED.relation_type,
                 join_alias       = EXCLUDED.join_alias,
-                join_type        = 'LEFT',
+                join_type        = EXCLUDED.join_type,
                 filter_mode      = 'AUTO',
                 path_weight      = 10,
                 relation_props   = jsonb_build_object('dbconn_id', EXCLUDED.dbconn_id)
@@ -522,10 +526,11 @@ public class MetadataRefreshService {
             ps.setString(3, r.toObject());
             ps.setString(4, r.relationType()); // Use relationType from record
             ps.setString(5, r.joinAlias()); // Use relationType from record
-            ps.setInt(6, r.dbconnId()); // for relation_props
-            ps.setInt(7, r.dbconnId()); // dbconn_id column
-            ps.setString(8, r.tenant());
-            ps.setString(9, r.app());
+            ps.setString(6, r.joinType());
+            ps.setInt(7, r.dbconnId()); // for relation_props
+            ps.setInt(8, r.dbconnId()); // dbconn_id column
+            ps.setString(9, r.tenant());
+            ps.setString(10, r.app());
         });
     }
 

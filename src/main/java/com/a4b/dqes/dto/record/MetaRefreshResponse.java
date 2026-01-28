@@ -5,14 +5,11 @@
 package com.a4b.dqes.dto.record;
 
 public record MetaRefreshResponse(
-    String tenantCode,
-    String appCode,
     String connCode,
     long elapsedMs,
     int objectsInserted,
     int fieldsInserted,
     int relationsInserted,
-    int joinKeysInserted,
-    boolean pathCacheRefreshed
+    int joinKeysInserted
 ) {}
 

@@ -18,7 +18,7 @@ import java.io.Serializable;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class FieldMeta implements Serializable {
+public class QrytbFieldMeta implements Serializable {
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -48,24 +48,30 @@ public class FieldMeta implements Serializable {
     @Column(name = "column_name")
     private String columnName;
     
-    @Column(name = "select_expr_code")
-    private String selectExprCode;
-    
-    @Column(name = "filter_expr_code")
-    private String filterExprCode;
-    
     @Column(name = "data_type", nullable = false)
     private String dataType;
     
     @Column(name = "not_null")
     private Boolean notNull = false;
+
+    @Column(name = "default_select")
+    private Boolean defaultSelect;
+
+    @Column(name = "allow_select")
+    private Boolean allowSelect;
+
+    @Column(name = "allow_filter")
+    private Boolean allowFilter;
     
-    // @Column(name = "default_value")
-    // private String defaultValue;
+    @Column(name = "allow_sort")
+    private Boolean allowSort;
     
     @Column(name = "description", length = 2000)
     private String description;
     
     @Column(name = "dbconn_id", nullable = false)
     private Integer dbconnId;
+
+    @Column(name = "is_primary")
+    private Boolean isPrimary = false;
 }

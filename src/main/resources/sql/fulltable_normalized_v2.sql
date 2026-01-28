@@ -357,6 +357,48 @@ CREATE TABLE dqes.qrytb_relation_join_key (
 CREATE INDEX IF NOT EXISTS idx_qrytb_relation_join_key_rel
   ON dqes.qrytb_relation_join_key (relation_id, seq);
 
+
+-- --------------------------
+-- 7) Field Meta (Normalized mapping + safe expr codes)
+-- --------------------------
+
+CREATE TABLE dqes.qrytb_relation_join_condition (
+  id serial4 NOT NULL,
+
+  relation_id int4 NOT NULL,
+  seq int4 NOT NULL DEFAULT 1,
+
+  -- column on joined table
+  column_name varchar(255) NOT NULL,
+
+  operator varchar(20) NOT NULL,
+
+  -- value kind
+  value_type varchar(20) NOT NULL CHECK (value_type IN ('CONST','PARAM','EXPR')),
+
+  -- actual value (stringified, typed at runtime)
+  value_literal text NULL,
+
+  -- optional for PARAM
+  param_name varchar(100) NULL,
+
+  description varchar(2000) NULL,
+
+  dbconn_id int4 NOT NULL,
+
+  LIKE dqes._sys_cols_template INCLUDING DEFAULTS INCLUDING generated,
+
+  CONSTRAINT qrytb_relation_join_condition_pk PRIMARY KEY (id),
+  CONSTRAINT qrytb_relation_join_condition_uk UNIQUE (relation_id, seq),
+
+  CONSTRAINT qrytb_relation_join_condition_rel_fk
+    FOREIGN KEY (relation_id)
+    REFERENCES dqes.qrytb_relation_info(id)
+    ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_qrytb_relation_join_condition_rel
+  ON dqes.qrytb_relation_join_condition (relation_id, seq);
+
 -- --------------------------
 -- 8) Field Meta (Normalized mapping + safe expr codes)
 -- --------------------------
@@ -369,6 +411,8 @@ CREATE TABLE dqes.qrytb_field_meta (
   field_code   varchar(100) NOT NULL,
   field_label  varchar(255) NOT NULL,
   alias_hint  varchar(30)  NOT NULL,
+
+  is_primary bool NULL DEFAULT false,
 
   mapping_type varchar(10) NOT NULL DEFAULT 'COLUMN'
     CHECK (mapping_type IN ('COLUMN','EXPR')),
@@ -390,11 +434,10 @@ CREATE TABLE dqes.qrytb_field_meta (
   data_type    varchar(100) NOT NULL,
 
   not_null     bool NULL DEFAULT false,
-
   ui_control   jsonb NULL,
   is_default   bool NULL DEFAULT false,
-  default_select bool NULL DEFAULT false,
 
+  default_select bool NULL DEFAULT false,
   allow_select bool NULL DEFAULT false,
   allow_filter bool NULL DEFAULT true,
   allow_sort   bool NULL DEFAULT true,

@@ -18,7 +18,7 @@ import java.io.Serializable;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class RelationJoinKey implements Serializable {
+public class QrytbRelationJoinKey implements Serializable {
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

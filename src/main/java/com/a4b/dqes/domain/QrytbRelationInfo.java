@@ -25,7 +25,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class RelationInfo implements Serializable {
+public class QrytbRelationInfo implements Serializable {
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -74,5 +74,8 @@ public class RelationInfo implements Serializable {
     private Integer dbconnId;
 
     @Transient
-    private List<RelationJoinKey> joinKeys;
+    private List<QrytbRelationJoinKey> joinKeys;
+
+    @Transient
+    private List<QrytbRelationJoinCondition> joinConditions;
 }

@@ -27,9 +27,9 @@ public final class MetaDataUtils {
 	public static void forCreate(Object object, Boolean needApproval){
 		try {
 			String username = SecurityUtils.getCurrentUserLogin().orElseGet(() -> "system");
-			BeanUtils.setProperty(object, "makerDate", OffsetDateTime.now());
+			BeanUtils.setProperty(object, "makerDate", new Date());
 			BeanUtils.setProperty(object, "makerId", username);
-			BeanUtils.setProperty(object, "updateDate", OffsetDateTime.now());
+			BeanUtils.setProperty(object, "updateDate", new Date());
 			BeanUtils.setProperty(object, "updateId", username);
 			BeanUtils.setProperty(object, "recordStatus", RecordStatus.O.name());
 			BeanUtils.setProperty(object, "authStatus", AuthStatus.A.name());
@@ -41,7 +41,7 @@ public final class MetaDataUtils {
 				BeanUtils.setProperty(object, "currentFlg", true);
 			}
 			
-			BeanUtils.setProperty(object, "createDate", OffsetDateTime.now());
+			BeanUtils.setProperty(object, "createDate", new Date());
 			BeanUtils.setProperty(object, "aggId", UUID.randomUUID());
 			BeanUtils.setProperty(object, "appCode", SecurityUtils.getCurrentAppCode());
 			BeanUtils.setProperty(object, "tenantCode", SecurityUtils.getCurrentUserTenantCode());

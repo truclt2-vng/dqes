@@ -7,14 +7,14 @@ package com.a4b.dqes.query.planner;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.a4b.dqes.domain.ObjectMeta;
+import com.a4b.dqes.dto.schemacache.ObjectMetaRC;
 
 import lombok.Data;
 
 @Data
 public class Planner {
     private String objectCode;
-    private ObjectMeta objectMeta;
+    private ObjectMetaRC objectMeta;
     private List<JoinStep> joinSteps;
 
     public Planner() {

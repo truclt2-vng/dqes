@@ -19,7 +19,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ObjectMeta implements Serializable {
+public class QrytbObjectMeta implements Serializable {
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -50,5 +50,5 @@ public class ObjectMeta implements Serializable {
     private String description;
 
     @Transient
-    private List<FieldMeta> fieldMetas;
+    private List<QrytbFieldMeta> fieldMetas;
 }

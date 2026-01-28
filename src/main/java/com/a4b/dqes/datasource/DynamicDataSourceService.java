@@ -3,12 +3,12 @@ package com.a4b.dqes.datasource;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import com.a4b.dqes.crypto.CryptoService;
-import com.a4b.dqes.dto.record.DbConnInfo;
+import com.a4b.dqes.dto.schemacache.DbConnInfoDto;
+import com.a4b.dqes.service.CfgtbDbconnInfoService;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -26,150 +26,79 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class DynamicDataSourceService {
     
-    private final NamedParameterJdbcTemplate dqesJdbc;  // For metadata queries
+    private final CfgtbDbconnInfoService dbconnInfoService; 
     private final CryptoService cryptoService;
     
-    // Cache: dbconnId -> NamedParameterJdbcTemplate
-    private final Map<Integer, NamedParameterJdbcTemplate> templateCache = new ConcurrentHashMap<>();
+    // Cache: dbconnCode -> NamedParameterJdbcTemplate
+    private final Map<String, NamedParameterJdbcTemplate> templateCache = new ConcurrentHashMap<>();
     
-    // Cache: dbconnId -> DataSource (for lifecycle management)
-    private final Map<Integer, HikariDataSource> dataSourceCache = new ConcurrentHashMap<>();
+    // Cache: dbconnCode -> DataSource (for lifecycle management)
+    private final Map<String, HikariDataSource> dataSourceCache = new ConcurrentHashMap<>();
     
+
+    public HikariDataSource getDataSource(String dbconnCode) {
+        getJdbcTemplate(dbconnCode);
+        return dataSourceCache.get(dbconnCode);
+    }
     /**
      * Get NamedParameterJdbcTemplate for the specified dbconn_id
      * Creates and caches if not exists
      */
-    public NamedParameterJdbcTemplate getJdbcTemplate(String tenantCode, String appCode, Integer dbconnId) {
-        if (dbconnId == null) {
-            throw new IllegalArgumentException("dbconnId cannot be null");
+    public NamedParameterJdbcTemplate getJdbcTemplate(String dbconnCode) {
+        if (dbconnCode == null) {
+            throw new IllegalArgumentException("dbconnCode cannot be null");
         }
         
-        return templateCache.computeIfAbsent(dbconnId, id -> {
-            log.info("Creating new JDBC template for dbconnId={}, tenant={}, app={}", id, tenantCode, appCode);
+        return templateCache.computeIfAbsent(dbconnCode, code -> {
+            log.info("Creating new JDBC template for dbconnCode={}", code);
             
             try {
-                // Load connection info from cfgtb_dbconn_info
-                DbConnInfo connInfo = loadConnectionInfo(tenantCode, appCode, id);
-                
-                // Decrypt password
-                String passwordPlain = cryptoService.decrypt(
-                    connInfo.passwordEnc(), 
-                    connInfo.passwordAlg()
-                );
-                
+                // Load connection info from cfgtb_dbconnInfo
+                DbConnInfoDto connInfo = dbconnInfoService.getDbConnInfoByCode(code);
+                if (connInfo == null) {
+                    throw new IllegalArgumentException("No connection info found for dbconnCode=" + code);
+                }
                 // Build DataSource
-                HikariDataSource dataSource = buildDataSource(connInfo, passwordPlain);
-                dataSourceCache.put(id, dataSource);
+                HikariDataSource dataSource = buildDataSource(connInfo);
+                dataSourceCache.put(code, dataSource);
                 
                 // Create NamedParameterJdbcTemplate
                 return new NamedParameterJdbcTemplate(dataSource);
                 
             } catch (Exception e) {
-                log.error("Failed to create JDBC template for dbconnId={}", id, e);
-                throw new RuntimeException("Failed to initialize DataSource for dbconnId=" + id, e);
+                log.error("Failed to create JDBC template for dbconnCode={}", code, e);
+                throw new RuntimeException("Failed to initialize DataSource for dbconnCode=" + code, e);
             }
         });
     }
     
     /**
-     * Load connection info from cfgtb_dbconn_info
-     */
-    public DbConnInfo loadConnectionInfo(String tenantCode, String appCode, Integer dbconnId) {
-        String sql = """
-            SELECT id, tenant_code, app_code, conn_code, db_vendor, host, port, 
-                   db_name, db_schema, username, password_enc, password_alg, 
-                   ssl_enabled, ssl_mode, jdbc_params::text
-            FROM dqes.cfgtb_dbconn_info
-            WHERE id = :dbconnId
-              AND tenant_code = :tenantCode
-              AND app_code = :appCode
-              AND record_status <> 'D'
-            """;
-        
-        MapSqlParameterSource params = new MapSqlParameterSource()
-            .addValue("dbconnId", dbconnId)
-            .addValue("tenantCode", tenantCode)
-            .addValue("appCode", appCode);
-        
-        return dqesJdbc.queryForObject(sql, params, (rs, i) -> new DbConnInfo(
-            rs.getInt("id"),
-            rs.getString("tenant_code"),
-            rs.getString("app_code"),
-            rs.getString("conn_code"),
-            rs.getString("db_vendor"),
-            rs.getString("host"),
-            rs.getInt("port"),
-            rs.getString("db_name"),
-            rs.getString("db_schema"),
-            rs.getString("username"),
-            rs.getString("password_enc"),
-            rs.getString("password_alg"),
-            (Boolean) rs.getObject("ssl_enabled"),
-            rs.getString("ssl_mode"),
-            rs.getString("jdbc_params")
-        ));
-    }
-
-    /**
-     * Load connection info from cfgtb_dbconn_info
-     */
-    public DbConnInfo loadConnectionInfo(String tenantCode, String appCode, String dbconnCode) {
-        String sql = """
-            SELECT id, tenant_code, app_code, conn_code, db_vendor, host, port, 
-                   db_name, db_schema, username, password_enc, password_alg, 
-                   ssl_enabled, ssl_mode, jdbc_params::text
-            FROM dqes.cfgtb_dbconn_info
-            WHERE conn_code = :dbconnCode
-              AND tenant_code = :tenantCode
-              AND app_code = :appCode
-              AND record_status <> 'D'
-            """;
-        
-        MapSqlParameterSource params = new MapSqlParameterSource()
-            .addValue("dbconnCode", dbconnCode)
-            .addValue("tenantCode", tenantCode)
-            .addValue("appCode", appCode);
-        
-        return dqesJdbc.queryForObject(sql, params, (rs, i) -> new DbConnInfo(
-            rs.getInt("id"),
-            rs.getString("tenant_code"),
-            rs.getString("app_code"),
-            rs.getString("conn_code"),
-            rs.getString("db_vendor"),
-            rs.getString("host"),
-            rs.getInt("port"),
-            rs.getString("db_name"),
-            rs.getString("db_schema"),
-            rs.getString("username"),
-            rs.getString("password_enc"),
-            rs.getString("password_alg"),
-            (Boolean) rs.getObject("ssl_enabled"),
-            rs.getString("ssl_mode"),
-            rs.getString("jdbc_params")
-        ));
-    }
-    
-    /**
      * Build HikariDataSource from connection info
      */
-    public HikariDataSource buildDataSource(DbConnInfo conn, String passwordPlain) {
-        String schema = (conn.dbSchema() == null || conn.dbSchema().isBlank()) 
+    public HikariDataSource buildDataSource(DbConnInfoDto connInfo) {
+        String schema = (connInfo.getDbSchema() == null || connInfo.getDbSchema().isBlank()) 
             ? "public" 
-            : conn.dbSchema();
+            : connInfo.getDbSchema();
+        
+        // Decrypt password
+        String passwordPlain = cryptoService.decrypt(
+            connInfo.getPasswordEnc(), 
+            connInfo.getPasswordAlg()
+        );
         
         // Build JDBC URL based on vendor
-        String url = buildJdbcUrl(conn, schema);
+        String url = buildJdbcUrl(connInfo, schema);
         
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(url);
-        config.setUsername(conn.username());
+        config.setUsername(connInfo.getUsername());
         config.setPassword(passwordPlain);
         config.setMaximumPoolSize(10);  // Adjust based on load
         config.setMinimumIdle(2);
         config.setConnectionTimeout(30000);
         config.setIdleTimeout(600000);
         config.setMaxLifetime(1800000);
-        config.setPoolName("dqes-query-" + conn.connCode());
+        config.setPoolName("dqes-query-" + connInfo.getConnCode());
         
         // Additional properties for better performance
         config.addDataSourceProperty("cachePrepStmts", "true");
@@ -182,57 +111,57 @@ public class DynamicDataSourceService {
     /**
      * Build JDBC URL based on database vendor
      */
-    private String buildJdbcUrl(DbConnInfo conn, String schema) {
+    private String buildJdbcUrl(DbConnInfoDto connInfo, String schema) {
         StringBuilder url = new StringBuilder();
         
-        switch (conn.dbVendor().toUpperCase()) {
+        switch (connInfo.getDbVendor().toUpperCase()) {
             case "POSTGRES", "POSTGRESQL" -> {
                 url.append("jdbc:postgresql://")
-                   .append(conn.host())
+                   .append(connInfo.getHost())
                    .append(":")
-                   .append(conn.port())
+                   .append(connInfo.getPort())
                    .append("/")
-                   .append(conn.dbName())
+                   .append(connInfo.getDbName())
                    .append("?currentSchema=").append(schema);
                 
-                if (Boolean.TRUE.equals(conn.sslEnabled())) {
+                if (Boolean.TRUE.equals(connInfo.getSslEnabled())) {
                     url.append("&ssl=true");
-                    if (conn.sslMode() != null && !conn.sslMode().isBlank()) {
-                        url.append("&sslmode=").append(conn.sslMode());
+                    if (connInfo.getSslMode() != null && !connInfo.getSslMode().isBlank()) {
+                        url.append("&sslmode=").append(connInfo.getSslMode());
                     }
                 }
             }
             case "MYSQL" -> {
                 url.append("jdbc:mysql://")
-                   .append(conn.host())
+                   .append(connInfo.getHost())
                    .append(":")
-                   .append(conn.port())
+                   .append(connInfo.getPort())
                    .append("/")
-                   .append(conn.dbName())
-                   .append("?useSSL=").append(conn.sslEnabled());
+                   .append(connInfo.getDbName())
+                   .append("?useSSL=").append(connInfo.getSslEnabled());
             }
             case "ORACLE" -> {
                 url.append("jdbc:oracle:thin:@")
-                   .append(conn.host())
+                   .append(connInfo.getHost())
                    .append(":")
-                   .append(conn.port())
+                   .append(connInfo.getPort())
                    .append(":")
-                   .append(conn.dbName());
+                   .append(connInfo.getDbName());
             }
             case "SQLSERVER", "MSSQL" -> {
                 url.append("jdbc:sqlserver://")
-                   .append(conn.host())
+                   .append(connInfo.getHost())
                    .append(":")
-                   .append(conn.port())
+                   .append(connInfo.getPort())
                    .append(";databaseName=")
-                   .append(conn.dbName());
+                   .append(connInfo.getDbName());
                 
-                if (Boolean.TRUE.equals(conn.sslEnabled())) {
+                if (Boolean.TRUE.equals(connInfo.getSslEnabled())) {
                     url.append(";encrypt=true");
                 }
             }
             default -> throw new IllegalArgumentException(
-                "Unsupported database vendor: " + conn.dbVendor()
+                "Unsupported database vendor: " + connInfo.getDbVendor()
             );
         }
         

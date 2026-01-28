@@ -5,7 +5,7 @@
 package com.a4b.dqes.dto.generic;
 
 import java.io.Serializable;
-import java.time.OffsetDateTime;
+import java.util.Date;
 import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Hidden;
@@ -25,19 +25,19 @@ public class ControllingFieldDto implements Serializable{
 	private UUID aggId;
 	
 	@Hidden
-	private OffsetDateTime createDate;
+	private Date createDate;
 	@Hidden
-	private OffsetDateTime makerDate;
+	private Date makerDate;
 	@Hidden
 	private String makerId;
 	@Hidden
-	private OffsetDateTime updateDate;
+	private Date updateDate;
 	@Hidden
 	private String updateId;
 	@Hidden
 	private String checkerId;
 	@Hidden
-	private OffsetDateTime checkerDate;
+	private Date checkerDate;
 	@Hidden
 	private String tenantCode;
 	@Hidden

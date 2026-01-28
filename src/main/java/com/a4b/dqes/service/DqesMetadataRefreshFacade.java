@@ -9,7 +9,8 @@ import org.springframework.stereotype.Service;
 import com.a4b.dqes.dto.record.MetaRefreshRequest;
 import com.a4b.dqes.dto.record.MetaRefreshResponse;
 import com.a4b.dqes.dto.record.MetaRefreshStats;
-import com.a4b.dqes.service.metadata.MetadataRefreshService;
+import com.a4b.dqes.query.service.DbSchemaCacheService;
+import com.a4b.dqes.service.metadata.MetadataService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -17,33 +18,26 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class DqesMetadataRefreshFacade {
 
-  private final MetadataRefreshService service;
+  private final MetadataService service;
+  private final DbSchemaCacheService dbSchemaCacheService;
 
   public MetaRefreshResponse refresh(MetaRefreshRequest req) throws Exception {
     long t0 = System.currentTimeMillis();
 
-    int maxDepth = req.maxDepth() == null ? 6 : req.maxDepth();
-    boolean includeViews = req.includeViews() == null ? true : req.includeViews();
-    boolean includeTables = req.includeTables() == null ? true : req.includeTables();
-    boolean includeMatViews = req.includeMaterializedViews() == null ? true : req.includeMaterializedViews();
-    boolean genViewRels = req.generateViewRelations() == null ? false : req.generateViewRelations();
+    MetaRefreshStats stats = service.refreshByConnCode(req.connCode());
 
-    MetaRefreshStats stats = service.refreshByConnCode(
-        req.tenantCode(), req.appCode(), req.connCode()
-    );
+    // Reload schema cache after refresh
+    dbSchemaCacheService.loadDbSchemaCache(req.connCode());
 
     long elapsed = System.currentTimeMillis() - t0;
 
     return new MetaRefreshResponse(
-        req.tenantCode(),
-        req.appCode(),
         req.connCode(),
         elapsed,
         stats.objectsInserted(),
         stats.fieldsInserted(),
         stats.relationsInserted(),
-        stats.joinKeysInserted(),
-        true
+        stats.joinKeysInserted()
     );
   }
 }

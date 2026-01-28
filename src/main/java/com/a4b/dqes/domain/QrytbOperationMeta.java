@@ -18,7 +18,7 @@ import java.io.Serializable;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class OperationMeta implements Serializable {
+public class QrytbOperationMeta implements Serializable {
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
