@@ -293,9 +293,9 @@ public class MetadataService {
                         String toObject   = objectCodeByTableKey.get(toKey);
                         if (fromObject == null || toObject == null) continue;
 
-                        // String relCode = ("REL_" + fromObject + "_" + toObject + "_" + fkName)
-                        //         .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
-                        String relCode = ("REL_" + fromObject + "_" + toObject).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                        String relCode = ("REL_" + fromObject + "_" + toObject + "_" + fkName)
+                                .toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                        // String relCode = ("REL_" + fromObject + "_" + toObject).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
 
                         String relationType = "MANY_TO_ONE";
                         // Optional: detect ONE_TO_ONE
@@ -312,7 +312,7 @@ public class MetadataService {
                         
                         if(allowOneToManyRelations){
                             // ONE_TO_MANY: reverse relation (Department -> Employee)
-                            String reverseRelCode = ("REL_REV_" + toObject + "_" + fromObject).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
+                            String reverseRelCode = ("REL_REV_" + toObject + "_" + fromObject+"_" + fkName).toUpperCase().replaceAll("[^A-Z0-9_]", "_");
                             
                             String joinAlias = joinAlias(rows)+"List";
                             relations.add(new RelationRow(conn.getId().intValue(), tenantCode, appCode,
